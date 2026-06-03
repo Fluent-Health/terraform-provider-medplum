@@ -78,8 +78,8 @@ func TestAnalyze_EnforcedCardinalityAndFixed(t *testing.T) {
 	  {"id":"Patient.active","path":"Patient.active","min":1,"max":"1"},
 	  {"id":"Patient.gender","path":"Patient.gender","fixedCode":"female"}
 	]`))
-	if r.EnforcedCount < 2 {
-		t.Fatalf("want >=2 enforced (cardinality + fixed), got %d", r.EnforcedCount)
+	if r.EnforcedCount != 2 {
+		t.Fatalf("want exactly 2 enforced (cardinality once-per-element + fixed), got %d", r.EnforcedCount)
 	}
 	if len(r.Rejects()) != 0 {
 		t.Fatalf("unexpected rejects: %+v", r.Findings)
