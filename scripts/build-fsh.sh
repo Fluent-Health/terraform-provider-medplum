@@ -55,27 +55,32 @@ fi
 # ── 3. Run the IG Publisher ────────────────────────────────────────────────────
 # The publisher runs SUSHI internally; -tx n/a disables external terminology
 # server lookups so the build works without network access to tx.fhir.org.
-log "Running IG Publisher on ${FSH_DIR}/ ..."
-java -jar "${PUBLISHER_JAR}" \
-  -ig "${FSH_DIR}" \
-  -tx n/a \
-  2>&1 | tee /tmp/ig-publisher-output.txt || {
-  log "IG Publisher exited non-zero. Dumping last 50 lines of output:"
-  tail -50 /tmp/ig-publisher-output.txt >&2
-  # Also dump qa.txt if it exists
-  if [[ -f "${FSH_DIR}/output/qa.txt" ]]; then
-    log "qa.txt contents:"
-    cat "${FSH_DIR}/output/qa.txt" >&2
-  fi
-  die "IG Publisher failed. See output above."
-}
+#
+# NOTE: we only need the snapshot-bearing StructureDefinition, which the publisher
+# writes during "Generating Snapshots" — BEFORE the final HTML/Jekyll rendering.
+# Jekyll is not installed in CI and is irrelevant to us, so a non-zero publisher
+# exit is NOT fatal here: the real gate is "did we get a snapshot SD?" (step 4).
+log "Running IG Publisher on ${FSH_DIR}/ (-tx n/a; HTML/Jekyll step may fail, that's OK) ..."
+set +e
+java -jar "${PUBLISHER_JAR}" -ig "${FSH_DIR}" -tx n/a 2>&1 | tee /tmp/ig-publisher-output.txt
+PUBLISHER_RC=${PIPESTATUS[0]}
+set -e
+if [[ "${PUBLISHER_RC}" -ne 0 ]]; then
+  log "IG Publisher exited ${PUBLISHER_RC} (often just the Jekyll HTML step). Checking for the snapshot SD anyway..."
+fi
 
 # ── 4. Locate the snapshot-bearing StructureDefinition ────────────────────────
-# The publisher writes output to test/fsh/output/; the file name matches the SD id.
+# The publisher writes snapshot-expanded resources to test/fsh/output/; SUSHI's
+# fsh-generated/ holds the differential-only version. We require a NON-EMPTY
+# snapshot, so the candidate search below skips differential-only files.
 CANDIDATE_PATHS=(
   "${FSH_DIR}/output/StructureDefinition-${SD_ID}.json"
   "${FSH_DIR}/fsh-generated/resources/StructureDefinition-${SD_ID}.json"
 )
+# Widen the search to any matching SD the publisher wrote anywhere under test/fsh.
+while IFS= read -r found; do
+  CANDIDATE_PATHS+=("${found}")
+done < <(find "${FSH_DIR}" -name "StructureDefinition-${SD_ID}.json" -type f 2>/dev/null)
 
 SD_PATH=""
 for p in "${CANDIDATE_PATHS[@]}"; do
