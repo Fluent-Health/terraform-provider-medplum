@@ -2,9 +2,11 @@ package provider
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
@@ -153,6 +155,41 @@ resource "medplum_access_policy" "test" {
 				ImportState:       true,
 				ImportStateVerify: true,
 			},
+		},
+	})
+}
+
+// TestAccAccessPolicy_withCompartmentAndInteraction verifies that a top-level compartment
+// and per-row interaction values round-trip without drift (no-op re-plan).
+func TestAccAccessPolicy_withCompartmentAndInteraction(t *testing.T) {
+	suffix := acctest.RandStringFromCharSet(8, acctest.CharSetAlphaNum)
+	cfg := func() string {
+		return fmt.Sprintf(`
+resource "medplum_access_policy" "compartment_test" {
+  name        = "tf-acc-policy-cmp-%s"
+  compartment = "%%profile"
+
+  resource {
+    resource_type = "Observation"
+    interaction   = ["read", "search-type"]
+  }
+}`, suffix)
+	}
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: cfg(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("medplum_access_policy.compartment_test", "id"),
+					resource.TestCheckResourceAttr("medplum_access_policy.compartment_test", "compartment", "%profile"),
+					resource.TestCheckResourceAttr("medplum_access_policy.compartment_test", "resource.0.resource_type", "Observation"),
+					resource.TestCheckResourceAttr("medplum_access_policy.compartment_test", "resource.0.interaction.0", "read"),
+					resource.TestCheckResourceAttr("medplum_access_policy.compartment_test", "resource.0.interaction.1", "search-type"),
+				),
+			},
+			{Config: cfg(), PlanOnly: true},
 		},
 	})
 }
