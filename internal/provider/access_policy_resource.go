@@ -22,6 +22,7 @@ type accessPolicyResource struct{ data *providerData }
 type accessPolicyModel struct {
 	ID           types.String              `tfsdk:"id"`
 	Name         types.String              `tfsdk:"name"`
+	Compartment  types.String              `tfsdk:"compartment"`
 	Resource     []accessPolicyResourceRow `tfsdk:"resource"`
 	IPAccessRule []accessPolicyIPRule      `tfsdk:"ip_access_rule"`
 }
@@ -33,6 +34,7 @@ type accessPolicyResourceRow struct {
 	HiddenFields   types.List   `tfsdk:"hidden_fields"`
 	ReadonlyFields types.List   `tfsdk:"readonly_fields"`
 	Compartment    types.String `tfsdk:"compartment"`
+	Interaction    types.List   `tfsdk:"interaction"`
 }
 
 type accessPolicyIPRule struct {
@@ -49,8 +51,9 @@ func (r *accessPolicyResource) Schema(_ context.Context, _ resource.SchemaReques
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "A Medplum AccessPolicy.",
 		Attributes: map[string]schema.Attribute{
-			"id":   schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
-			"name": schema.StringAttribute{Required: true},
+			"id":          schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"name":        schema.StringAttribute{Required: true},
+			"compartment": schema.StringAttribute{Optional: true, MarkdownDescription: "Top-level compartment reference, e.g. %profile."},
 		},
 		Blocks: map[string]schema.Block{
 			"resource": schema.ListNestedBlock{
@@ -62,6 +65,7 @@ func (r *accessPolicyResource) Schema(_ context.Context, _ resource.SchemaReques
 						"hidden_fields":   schema.ListAttribute{Optional: true, ElementType: types.StringType, MarkdownDescription: "Fields to hide. Omit (do not set to []) when none — FHIR does not allow empty arrays."},
 						"readonly_fields": schema.ListAttribute{Optional: true, ElementType: types.StringType, MarkdownDescription: "Read-only fields. Omit (do not set to []) when none."},
 						"compartment":     schema.StringAttribute{Optional: true, MarkdownDescription: "Compartment reference, e.g. Patient/123."},
+						"interaction":     schema.ListAttribute{Optional: true, ElementType: types.StringType, MarkdownDescription: "Allowed FHIR interactions, e.g. [\"read\",\"search\"]. Omit (do not set to []) when none."},
 					},
 				},
 			},
@@ -97,6 +101,9 @@ func (m accessPolicyModel) toFHIR(id string) ([]byte, error) {
 	if id != "" {
 		doc["id"] = id
 	}
+	if v := strOrEmpty(m.Compartment); v != "" {
+		doc["compartment"] = refObj(v)
+	}
 	rows := make([]map[string]any, 0, len(m.Resource))
 	for _, row := range m.Resource {
 		entry := map[string]any{"resourceType": row.ResourceType.ValueString()}
@@ -114,6 +121,9 @@ func (m accessPolicyModel) toFHIR(id string) ([]byte, error) {
 		}
 		if v := strOrEmpty(row.Compartment); v != "" {
 			entry["compartment"] = refObj(v)
+		}
+		if ia := listToStrings(row.Interaction); len(ia) > 0 {
+			entry["interaction"] = ia
 		}
 		rows = append(rows, entry)
 	}
@@ -139,8 +149,11 @@ func (m accessPolicyModel) toFHIR(id string) ([]byte, error) {
 // read back, so server-managed fields (meta.*) never cause drift.
 func (m *accessPolicyModel) fromFHIR(body []byte) error {
 	var doc struct {
-		ID       string `json:"id"`
-		Name     string `json:"name"`
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Compartment struct {
+			Reference string `json:"reference"`
+		} `json:"compartment"`
 		Resource []struct {
 			ResourceType   string   `json:"resourceType"`
 			Criteria       string   `json:"criteria"`
@@ -150,6 +163,7 @@ func (m *accessPolicyModel) fromFHIR(body []byte) error {
 			Compartment    struct {
 				Reference string `json:"reference"`
 			} `json:"compartment"`
+			Interaction []string `json:"interaction"`
 		} `json:"resource"`
 		IPAccessRule []struct {
 			Name   string `json:"name"`
@@ -162,6 +176,7 @@ func (m *accessPolicyModel) fromFHIR(body []byte) error {
 	}
 	m.ID = types.StringValue(doc.ID)
 	m.Name = types.StringValue(doc.Name)
+	m.Compartment = optString(doc.Compartment.Reference)
 	rows := make([]accessPolicyResourceRow, 0, len(doc.Resource))
 	for _, row := range doc.Resource {
 		rr := accessPolicyResourceRow{
@@ -170,6 +185,7 @@ func (m *accessPolicyModel) fromFHIR(body []byte) error {
 			HiddenFields:   stringsToList(row.HiddenFields),
 			ReadonlyFields: stringsToList(row.ReadonlyFields),
 			Compartment:    optString(row.Compartment.Reference),
+			Interaction:    stringsToList(row.Interaction),
 		}
 		if row.Readonly != nil {
 			rr.Readonly = types.BoolValue(*row.Readonly)
