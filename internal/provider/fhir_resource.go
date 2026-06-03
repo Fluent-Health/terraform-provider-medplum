@@ -187,12 +187,19 @@ func (r *fhirResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 	if trimmed == "" || trimmed == "{}" {
 		// Import (or empty) sentinel: adopt the server body as the starting point.
 		m.Body = types.StringValue(string(out))
-	} else if contained, cerr := fhirjson.Contains([]byte(stateBody), out); cerr == nil && !contained {
-		// Genuine drift: the server no longer satisfies the desired config.
-		// Surface the server's actual state so the next plan shows a diff.
-		m.Body = types.StringValue(string(out))
+	} else {
+		contained, cerr := fhirjson.Contains([]byte(stateBody), out)
+		if cerr != nil {
+			resp.Diagnostics.AddError("Drift comparison failed", fmt.Sprintf("could not compare state to server response: %s", cerr))
+			return
+		}
+		if !contained {
+			// Genuine drift: the server no longer satisfies the desired config.
+			// Surface the server's actual state so the next plan shows a diff.
+			m.Body = types.StringValue(string(out))
+		}
+		// Otherwise the server still satisfies the desired config; keep stateBody.
 	}
-	// Otherwise the server still satisfies the desired config; keep stateBody.
 
 	id, ver, upd, err := extractMeta(out)
 	if err != nil {
