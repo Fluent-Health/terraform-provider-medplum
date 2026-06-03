@@ -18,10 +18,14 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
-	if e.Diagnostics != "" {
-		return fmt.Sprintf("medplum API error (HTTP %d): %s", e.StatusCode, e.Diagnostics)
+	detail := e.Diagnostics
+	if detail == "" {
+		detail = e.Body
 	}
-	return fmt.Sprintf("medplum API error (HTTP %d): %s", e.StatusCode, e.Body)
+	if detail == "" {
+		detail = http.StatusText(e.StatusCode)
+	}
+	return fmt.Sprintf("medplum API error (HTTP %d): %s", e.StatusCode, detail)
 }
 
 // IsNotFound reports whether err is an APIError with HTTP 404.
@@ -57,7 +61,10 @@ func (c *Client) do(ctx context.Context, method, url string, body []byte) ([]byt
 		return nil, err
 	}
 	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response body: %w", err)
+	}
 
 	if resp.StatusCode >= 400 {
 		return nil, &APIError{StatusCode: resp.StatusCode, Diagnostics: parseOutcome(respBody), Body: string(respBody)}
@@ -89,16 +96,25 @@ func (c *Client) FHIRCreate(ctx context.Context, resourceType string, body []byt
 
 // FHIRRead GETs a resource by id.
 func (c *Client) FHIRRead(ctx context.Context, resourceType, id string) ([]byte, error) {
+	if id == "" {
+		return nil, fmt.Errorf("FHIRRead: id is required")
+	}
 	return c.do(ctx, http.MethodGet, c.fhirURL(resourceType, id), nil)
 }
 
 // FHIRUpdate PUTs a resource by id and returns the server representation.
 func (c *Client) FHIRUpdate(ctx context.Context, resourceType, id string, body []byte) ([]byte, error) {
+	if id == "" {
+		return nil, fmt.Errorf("FHIRUpdate: id is required")
+	}
 	return c.do(ctx, http.MethodPut, c.fhirURL(resourceType, id), body)
 }
 
 // FHIRDelete DELETEs a resource by id.
 func (c *Client) FHIRDelete(ctx context.Context, resourceType, id string) error {
+	if id == "" {
+		return fmt.Errorf("FHIRDelete: id is required")
+	}
 	_, err := c.do(ctx, http.MethodDelete, c.fhirURL(resourceType, id), nil)
 	return err
 }

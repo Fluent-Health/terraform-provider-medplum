@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -74,5 +75,47 @@ func TestFHIRDelete_OK(t *testing.T) {
 
 	if err := c.FHIRDelete(context.Background(), "ValueSet", "123"); err != nil {
 		t.Fatalf("FHIRDelete: %v", err)
+	}
+}
+
+func TestFHIRUpdate_RoundTrip(t *testing.T) {
+	c, srv := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			http.Error(w, "bad method", http.StatusBadRequest)
+			return
+		}
+		if r.URL.Path != "/fhir/R4/ValueSet/123" {
+			http.Error(w, "bad path", http.StatusBadRequest)
+			return
+		}
+		_, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/fhir+json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"resourceType":"ValueSet","id":"123","meta":{"versionId":"2"}}`))
+	})
+	defer srv.Close()
+
+	out, err := c.FHIRUpdate(context.Background(), "ValueSet", "123", []byte(`{"resourceType":"ValueSet","id":"123"}`))
+	if err != nil {
+		t.Fatalf("FHIRUpdate: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got["id"] != "123" {
+		t.Fatalf("expected id 123, got %v", got["id"])
+	}
+}
+
+func TestFHIRRead_EmptyID(t *testing.T) {
+	c, srv := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	defer srv.Close()
+
+	_, err := c.FHIRRead(context.Background(), "ValueSet", "")
+	if err == nil {
+		t.Fatal("expected error for empty id, got nil")
 	}
 }
