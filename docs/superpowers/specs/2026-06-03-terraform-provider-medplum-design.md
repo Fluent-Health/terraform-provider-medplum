@@ -41,6 +41,7 @@ terraform-plugin-framework, published to the public Terraform Registry.
 | `project_membership` | **Pure FHIR CRUD** generic profile binder (clients, bots, users) — `accessPolicy` lives here, not on the client |
 | Human users | **`medplum_user` via plain FHIR** (no invite email); optional write-only password via `/setpassword`. The `invite` flow is **out of scope** |
 | Client secret | **Server-generated via `$rotate-secret`** by default; **optional explicit `secret`** override |
+| Membership delete | **Plain FHIR `DELETE`** (no admin cascade) + a **project-owner guard**; user/client cleanup is left to Terraform dependency ordering |
 
 ## Goals (Milestone 1)
 
@@ -253,8 +254,20 @@ resource "medplum_project_membership" "clinician" {
 
 * CRUD via `/{fhir_path}/ProjectMembership`. `project`, `user`, `profile` are `ForceNew`
   (changing the binding identity recreates); `access_policy`, `access[]`, `admin` update in place.
-* Open question (see Risks): whether plain FHIR delete is sufficient or the admin
-  `DELETE /admin/projects/:id/members/:membershipId` cleanup is needed.
+* **Delete uses plain FHIR `DELETE /{fhir_path}/ProjectMembership/{id}`** (which also invalidates the
+  auth/membership cache — same delete path the admin route uses). We deliberately do **not** use the
+  admin `DELETE /admin/projects/:id/members/:membershipId` endpoint, because it cascade-deletes a
+  project-scoped `User` when the membership is its last one. In this provider `User`,
+  `ClientApplication`, and `ProjectMembership` are separate resources that each own one server
+  object; a cascade would delete a `medplum_user`/`medplum_client_application` out from under
+  Terraform and corrupt state. The cascade's intent is instead expressed by Terraform dependency
+  ordering: because the membership references its user/profile, `destroy` removes the membership
+  first and the user/client afterward — same end state, explicit and state-consistent.
+* **Owner guard.** Before deleting (and on create/import), the resource reads the project and refuses
+  to manage/delete the membership whose user is the project `owner` (returning a clear error),
+  mirroring the admin endpoint's `Cannot delete the owner of the project` protection so a stray
+  `destroy` cannot brick a project.
+* Requires the configured credentials to hold delete permission on `ProjectMembership`.
 
 #### `medplum_user`
 
@@ -377,8 +390,11 @@ One spec, but the plan should land these independently and in order:
 * **Medplum API specifics confirmed against v5.1.14** (see Medplum source findings) — but the exact
   request/response shapes for `$rotate-secret`, `$init`, `/setpassword`, and ProjectMembership
   delete semantics must still be pinned by acceptance tests against the CI Medplum version.
-* **ProjectMembership delete**: confirm plain FHIR `DELETE /ProjectMembership/{id}` fully removes
-  access, or whether the admin `DELETE /admin/projects/:id/members/:membershipId` cleanup is required.
+* **ProjectMembership delete — resolved** (see the resource section): plain FHIR
+  `DELETE /ProjectMembership/{id}` is used (it invalidates the membership cache); the admin
+  cascade endpoint is intentionally avoided, and an owner guard is added. Remaining test task: confirm
+  the cache-invalidation timing against the CI Medplum version so a deleted membership can't still
+  authenticate.
 * **`medplum_user` password**: `/setpassword` is project-scoped and email-keyed; server-scoped or
   externalId-only users can't use it. Plan-time validation must enforce the `email` + project-scope
   precondition, and treat `password` as write-only (no drift detection).
