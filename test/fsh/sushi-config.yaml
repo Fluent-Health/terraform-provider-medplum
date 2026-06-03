@@ -6,5 +6,6 @@ publisher: Fluent Health
 status: active
 version: 0.1.0
 fhirVersion: 4.0.1
+copyrightYear: 2026+
 FSHOnly: false
 releaseLabel: ci
