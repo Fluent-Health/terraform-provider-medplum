@@ -1,0 +1,5 @@
+fsh-generated/
+output/
+input-cache/
+template/
+*.log
