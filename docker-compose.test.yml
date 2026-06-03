@@ -49,3 +49,9 @@ services:
       MEDPLUM_REDIS_PASSWORD: medplum
       MEDPLUM_BASE_URL: "http://localhost:8103/"
       MEDPLUM_PORT: "8103"
+      # Disable rate limiting for tests. Medplum throttles /auth/login to 5/min
+      # (defaultLoginRateLimit); the acceptance suite runs many terraform
+      # subprocesses that each re-login, tripping a 429. Setting defaultRateLimit
+      # to -1 disables the limiter entirely (the same approach Medplum uses in its
+      # own test config).
+      MEDPLUM_DEFAULT_RATE_LIMIT: "-1"
