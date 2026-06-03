@@ -32,8 +32,7 @@ func (c Config) tokenSource(ctx context.Context) (oauth2.TokenSource, error) {
 		}
 		return cc.TokenSource(ctx), nil
 	case c.hasLogin():
-		src := &loginTokenSource{cfg: c, ctx: ctx}
-		return oauth2.ReuseTokenSource(nil, src), nil
+		return oauth2.ReuseTokenSource(nil, &loginTokenSource{cfg: c}), nil
 	default:
 		return nil, fmt.Errorf("no auth method configured")
 	}
@@ -42,13 +41,16 @@ func (c Config) tokenSource(ctx context.Context) (oauth2.TokenSource, error) {
 // loginTokenSource performs Medplum email+password login (with PKCE + token
 // exchange) on demand. Wrapped in oauth2.ReuseTokenSource, it re-logs in when
 // the previous token expires.
-type loginTokenSource struct {
-	cfg Config
-	ctx context.Context
-}
+//
+// Token() intentionally uses context.Background rather than the context that
+// was active at Configure time: the Configure-time context is cancelled by
+// Terraform before any CRUD operations run, so passing it to a lazy token
+// fetch would cause every HTTP call to fail with "context canceled". Token
+// fetches must outlive the request that triggered them.
+type loginTokenSource struct{ cfg Config }
 
 func (s *loginTokenSource) Token() (*oauth2.Token, error) {
-	return s.cfg.login(s.ctx)
+	return s.cfg.login(context.Background())
 }
 
 // loginResponse is the shape returned by /auth/login and /auth/profile.
