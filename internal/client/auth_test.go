@@ -310,7 +310,7 @@ func TestNew_ClientCredentials_UsesConfiguredHTTPClient(t *testing.T) {
 		case "/fhir/R4/metadata":
 			fhirHit = true
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"resourceType":"CapabilityStatement"}`)
+			_, _ = fmt.Fprint(w, `{"resourceType":"CapabilityStatement"}`)
 		default:
 			http.Error(w, "not found", http.StatusNotFound)
 		}
@@ -337,7 +337,7 @@ func TestNew_ClientCredentials_UsesConfiguredHTTPClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET metadata: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if !tokenHit {
 		t.Error("token endpoint was never reached: custom HTTPClient was not wired into the token source")

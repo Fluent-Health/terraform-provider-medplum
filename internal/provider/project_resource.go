@@ -124,7 +124,7 @@ func (r *projectResource) initProject(ctx context.Context, name string) (string,
 			}
 		}
 	}
-	return "", fmt.Errorf("Project/$init response did not contain a Project id: %s", string(out))
+	return "", fmt.Errorf("project/$init response did not contain a project id: %s", string(out))
 }
 
 func (r *projectResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
