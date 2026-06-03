@@ -107,8 +107,13 @@ func (r *fhirProfileResource) ModifyPlan(ctx context.Context, req resource.Modif
 			resp.Diagnostics.AddAttributeWarning(path.Root("structure_definition"), "Profile construct unenforced by Medplum", msg)
 		}
 	}
+	// When the profile is rejected, the per-reject errors are the actionable
+	// output; don't add a (potentially misleading) "summary" warning alongside them.
+	if len(report.Rejects()) > 0 {
+		return
+	}
 	// Decorative-only profile: no enforced constraints at all.
-	if len(report.Rejects()) == 0 && report.EnforcedCount == 0 {
+	if report.EnforcedCount == 0 {
 		detail := "this profile contributes no constraints Medplum enforces; it is decorative. " + report.Summary()
 		if strict {
 			resp.Diagnostics.AddAttributeError(path.Root("structure_definition"), "Decorative-only profile (strict)", detail)
