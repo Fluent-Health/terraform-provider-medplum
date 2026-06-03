@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -75,10 +77,23 @@ func TestTokenSource_Login(t *testing.T) {
 }
 
 func TestLogin_CodeExchange(t *testing.T) {
+	var capturedChallenge string
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/auth/login":
+			var body map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["codeChallengeMethod"] != "S256" {
+				http.Error(w, fmt.Sprintf("bad codeChallengeMethod: %q", body["codeChallengeMethod"]), http.StatusBadRequest)
+				return
+			}
+			if body["codeChallenge"] == "" {
+				http.Error(w, "missing codeChallenge", http.StatusBadRequest)
+				return
+			}
+			capturedChallenge = body["codeChallenge"]
 			_ = json.NewEncoder(w).Encode(map[string]any{"login": "L1", "code": "C1"})
 		case "/oauth2/token":
 			_ = r.ParseForm()
@@ -88,6 +103,17 @@ func TestLogin_CodeExchange(t *testing.T) {
 			}
 			if got := r.Form.Get("code"); got != "C1" {
 				http.Error(w, fmt.Sprintf("bad code: %q", got), http.StatusBadRequest)
+				return
+			}
+			codeVerifier := r.Form.Get("code_verifier")
+			if codeVerifier == "" {
+				http.Error(w, "missing code_verifier", http.StatusBadRequest)
+				return
+			}
+			sum := sha256.Sum256([]byte(codeVerifier))
+			wantChallenge := base64.RawURLEncoding.EncodeToString(sum[:])
+			if wantChallenge != capturedChallenge {
+				http.Error(w, fmt.Sprintf("code_verifier does not match codeChallenge: got %q want %q", wantChallenge, capturedChallenge), http.StatusBadRequest)
 				return
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "final-tok"})
@@ -109,13 +135,29 @@ func TestLogin_CodeExchange(t *testing.T) {
 	if tok.AccessToken != "final-tok" {
 		t.Fatalf("got token %q, want %q", tok.AccessToken, "final-tok")
 	}
+	if capturedChallenge == "" {
+		t.Fatal("codeChallenge was never captured from /auth/login request")
+	}
 }
 
 func TestLogin_ProfileSelection(t *testing.T) {
+	var capturedChallenge string
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/auth/login":
+			var body map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["codeChallengeMethod"] != "S256" {
+				http.Error(w, fmt.Sprintf("bad codeChallengeMethod: %q", body["codeChallengeMethod"]), http.StatusBadRequest)
+				return
+			}
+			if body["codeChallenge"] == "" {
+				http.Error(w, "missing codeChallenge", http.StatusBadRequest)
+				return
+			}
+			capturedChallenge = body["codeChallenge"]
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"login":       "L1",
 				"memberships": []map[string]any{{"id": "M1"}},
@@ -138,6 +180,17 @@ func TestLogin_ProfileSelection(t *testing.T) {
 				http.Error(w, fmt.Sprintf("bad code: %q", got), http.StatusBadRequest)
 				return
 			}
+			codeVerifier := r.Form.Get("code_verifier")
+			if codeVerifier == "" {
+				http.Error(w, "missing code_verifier", http.StatusBadRequest)
+				return
+			}
+			sum := sha256.Sum256([]byte(codeVerifier))
+			wantChallenge := base64.RawURLEncoding.EncodeToString(sum[:])
+			if wantChallenge != capturedChallenge {
+				http.Error(w, fmt.Sprintf("code_verifier does not match codeChallenge: got %q want %q", wantChallenge, capturedChallenge), http.StatusBadRequest)
+				return
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "tok2"})
 		default:
 			http.Error(w, "not found", http.StatusNotFound)
@@ -156,6 +209,9 @@ func TestLogin_ProfileSelection(t *testing.T) {
 	}
 	if tok.AccessToken != "tok2" {
 		t.Fatalf("got token %q, want %q", tok.AccessToken, "tok2")
+	}
+	if capturedChallenge == "" {
+		t.Fatal("codeChallenge was never captured from /auth/login request")
 	}
 }
 

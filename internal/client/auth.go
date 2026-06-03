@@ -3,6 +3,9 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -90,11 +93,22 @@ func (c Config) postJSON(ctx context.Context, rawURL string, payload any, dst an
 func (c Config) login(ctx context.Context) (*oauth2.Token, error) {
 	base := strings.TrimRight(c.BaseURL, "/")
 
+	// Generate PKCE verifier and challenge (S256) required by Medplum v5+ native login.
+	verifierBytes := make([]byte, 32)
+	if _, err := rand.Read(verifierBytes); err != nil {
+		return nil, fmt.Errorf("generate pkce verifier: %w", err)
+	}
+	verifier := base64.RawURLEncoding.EncodeToString(verifierBytes)
+	sum := sha256.Sum256([]byte(verifier))
+	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
+
 	// Step 1: POST /auth/login
 	var loginResp loginResponse
 	if err := c.postJSON(ctx, base+"/auth/login", map[string]string{
-		"email":    c.Email,
-		"password": c.Password,
+		"email":               c.Email,
+		"password":            c.Password,
+		"codeChallenge":       challenge,
+		"codeChallengeMethod": "S256",
 	}, &loginResp); err != nil {
 		return nil, fmt.Errorf("login failed: %w", err)
 	}
@@ -135,8 +149,9 @@ func (c Config) login(ctx context.Context) (*oauth2.Token, error) {
 	// Step 3: exchange the code for an access token at /oauth2/token.
 	tokenURL := base + "/oauth2/token"
 	formData := url.Values{
-		"grant_type": {"authorization_code"},
-		"code":       {code},
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"code_verifier": {verifier},
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(formData.Encode()))
 	if err != nil {
