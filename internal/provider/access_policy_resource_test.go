@@ -47,40 +47,38 @@ resource "medplum_access_policy" "test" {
 	})
 }
 
-// TestAccAccessPolicy_emptyList verifies that an explicit empty list ([]) in config
-// does not produce an "inconsistent result after apply" error. The emptyListAsNull
-// plan modifier normalises [] → null at plan time, matching what fromFHIR returns
-// (Medplum strips empty arrays on the server side).
-func TestAccAccessPolicy_emptyList(t *testing.T) {
+// TestAccAccessPolicy_omittedLists verifies that a resource block with hidden_fields
+// and readonly_fields entirely omitted (null) creates without error and re-plans
+// as a no-op. FHIR does not allow empty arrays, so the correct approach is to omit
+// these attributes entirely rather than setting them to [].
+func TestAccAccessPolicy_omittedLists(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
-			// Create with explicit empty lists – must not crash on apply.
+			// Create with hidden_fields and readonly_fields omitted – must apply cleanly.
 			{
 				Config: `
-resource "medplum_access_policy" "empty_list" {
-  name = "tf-acc-policy-empty-list"
+resource "medplum_access_policy" "omitted_lists" {
+  name = "tf-acc-policy-omitted-lists"
   resource {
-    resource_type   = "Observation"
-    hidden_fields   = []
-    readonly_fields = []
+    resource_type = "Observation"
+    criteria      = "Observation?status=final"
   }
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttrSet("medplum_access_policy.empty_list", "id"),
-					resource.TestCheckResourceAttr("medplum_access_policy.empty_list", "resource.0.resource_type", "Observation"),
+					resource.TestCheckResourceAttrSet("medplum_access_policy.omitted_lists", "id"),
+					resource.TestCheckResourceAttr("medplum_access_policy.omitted_lists", "resource.0.resource_type", "Observation"),
 				),
 			},
 			// Re-plan with the same config – must be a no-op (no churn).
 			{
 				Config: `
-resource "medplum_access_policy" "empty_list" {
-  name = "tf-acc-policy-empty-list"
+resource "medplum_access_policy" "omitted_lists" {
+  name = "tf-acc-policy-omitted-lists"
   resource {
-    resource_type   = "Observation"
-    hidden_fields   = []
-    readonly_fields = []
+    resource_type = "Observation"
+    criteria      = "Observation?status=final"
   }
 }`,
 				PlanOnly: true,
