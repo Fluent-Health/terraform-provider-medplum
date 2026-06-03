@@ -20,9 +20,10 @@ func NewAccessPolicyResource() resource.Resource { return &accessPolicyResource{
 type accessPolicyResource struct{ data *providerData }
 
 type accessPolicyModel struct {
-	ID       types.String              `tfsdk:"id"`
-	Name     types.String              `tfsdk:"name"`
-	Resource []accessPolicyResourceRow `tfsdk:"resource"`
+	ID           types.String              `tfsdk:"id"`
+	Name         types.String              `tfsdk:"name"`
+	Resource     []accessPolicyResourceRow `tfsdk:"resource"`
+	IPAccessRule []accessPolicyIPRule      `tfsdk:"ip_access_rule"`
 }
 
 type accessPolicyResourceRow struct {
@@ -31,6 +32,13 @@ type accessPolicyResourceRow struct {
 	Readonly       types.Bool   `tfsdk:"readonly"`
 	HiddenFields   types.List   `tfsdk:"hidden_fields"`
 	ReadonlyFields types.List   `tfsdk:"readonly_fields"`
+	Compartment    types.String `tfsdk:"compartment"`
+}
+
+type accessPolicyIPRule struct {
+	Name   types.String `tfsdk:"name"`
+	Value  types.String `tfsdk:"value"`
+	Action types.String `tfsdk:"action"`
 }
 
 func (r *accessPolicyResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -53,6 +61,17 @@ func (r *accessPolicyResource) Schema(_ context.Context, _ resource.SchemaReques
 						"readonly":        schema.BoolAttribute{Optional: true},
 						"hidden_fields":   schema.ListAttribute{Optional: true, ElementType: types.StringType, PlanModifiers: []planmodifier.List{emptyListAsNull()}},
 						"readonly_fields": schema.ListAttribute{Optional: true, ElementType: types.StringType, PlanModifiers: []planmodifier.List{emptyListAsNull()}},
+						"compartment":     schema.StringAttribute{Optional: true, MarkdownDescription: "Compartment reference, e.g. Patient/123."},
+					},
+				},
+			},
+			"ip_access_rule": schema.ListNestedBlock{
+				MarkdownDescription: "IP-based access rules applied to this policy.",
+				NestedObject: schema.NestedBlockObject{
+					Attributes: map[string]schema.Attribute{
+						"name":   schema.StringAttribute{Optional: true, MarkdownDescription: "Human-readable label for the rule."},
+						"value":  schema.StringAttribute{Required: true, MarkdownDescription: "CIDR or IP address, e.g. 192.168.1.0/24."},
+						"action": schema.StringAttribute{Required: true, MarkdownDescription: "\"allow\" or \"block\"."},
 					},
 				},
 			},
@@ -93,9 +112,26 @@ func (m accessPolicyModel) toFHIR(id string) ([]byte, error) {
 		if rf := listToStrings(row.ReadonlyFields); len(rf) > 0 {
 			entry["readonlyFields"] = rf
 		}
+		if v := strOrEmpty(row.Compartment); v != "" {
+			entry["compartment"] = refObj(v)
+		}
 		rows = append(rows, entry)
 	}
 	doc["resource"] = rows
+	if len(m.IPAccessRule) > 0 {
+		ipRules := make([]map[string]any, 0, len(m.IPAccessRule))
+		for _, rule := range m.IPAccessRule {
+			r := map[string]any{
+				"value":  rule.Value.ValueString(),
+				"action": rule.Action.ValueString(),
+			}
+			if v := strOrEmpty(rule.Name); v != "" {
+				r["name"] = v
+			}
+			ipRules = append(ipRules, r)
+		}
+		doc["ipAccessRule"] = ipRules
+	}
 	return json.Marshal(doc)
 }
 
@@ -111,7 +147,15 @@ func (m *accessPolicyModel) fromFHIR(body []byte) error {
 			Readonly       *bool    `json:"readonly"`
 			HiddenFields   []string `json:"hiddenFields"`
 			ReadonlyFields []string `json:"readonlyFields"`
+			Compartment    struct {
+				Reference string `json:"reference"`
+			} `json:"compartment"`
 		} `json:"resource"`
+		IPAccessRule []struct {
+			Name   string `json:"name"`
+			Value  string `json:"value"`
+			Action string `json:"action"`
+		} `json:"ipAccessRule"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return err
@@ -125,6 +169,7 @@ func (m *accessPolicyModel) fromFHIR(body []byte) error {
 			Criteria:       optString(row.Criteria),
 			HiddenFields:   stringsToList(row.HiddenFields),
 			ReadonlyFields: stringsToList(row.ReadonlyFields),
+			Compartment:    optString(row.Compartment.Reference),
 		}
 		if row.Readonly != nil {
 			rr.Readonly = types.BoolValue(*row.Readonly)
@@ -134,6 +179,19 @@ func (m *accessPolicyModel) fromFHIR(body []byte) error {
 		rows = append(rows, rr)
 	}
 	m.Resource = rows
+	if len(doc.IPAccessRule) > 0 {
+		ipRules := make([]accessPolicyIPRule, 0, len(doc.IPAccessRule))
+		for _, rule := range doc.IPAccessRule {
+			ipRules = append(ipRules, accessPolicyIPRule{
+				Name:   optString(rule.Name),
+				Value:  types.StringValue(rule.Value),
+				Action: types.StringValue(rule.Action),
+			})
+		}
+		m.IPAccessRule = ipRules
+	} else {
+		m.IPAccessRule = nil
+	}
 	return nil
 }
 

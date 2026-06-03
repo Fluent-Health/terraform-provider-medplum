@@ -45,7 +45,7 @@ func (r *userResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 			"external_id": schema.StringAttribute{Optional: true},
 			"project_id":  schema.StringAttribute{Optional: true, MarkdownDescription: "Project id (bare uuid). Sets project scope and is required when password is set.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"admin":       schema.BoolAttribute{Optional: true},
-			"password":    schema.StringAttribute{Optional: true, Sensitive: true, MarkdownDescription: "Write-only. Applied via /setpassword (no email). Requires email + project_id. Not read back."},
+			"password":    schema.StringAttribute{Optional: true, Sensitive: true, MarkdownDescription: "Write-only. Applied via /setpassword (no password-reset email is sent). Requires email + project_id. Not read back."},
 		},
 	}
 }
@@ -137,6 +137,9 @@ func (m *userModel) fromFHIR(body []byte) error {
 
 // applyPassword sets the password via /setpassword when configured.
 func (r *userResource) applyPassword(ctx context.Context, m userModel) error {
+	if r.data == nil {
+		return fmt.Errorf("provider not configured")
+	}
 	pw := strOrEmpty(m.Password)
 	if pw == "" {
 		return nil

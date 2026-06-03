@@ -71,7 +71,10 @@ func generateClientSecret() (string, error) {
 }
 
 func (m clientApplicationModel) toFHIR(id, secret string) ([]byte, error) {
-	doc := map[string]any{"resourceType": "ClientApplication", "name": m.Name.ValueString(), "secret": secret}
+	doc := map[string]any{"resourceType": "ClientApplication", "name": m.Name.ValueString()}
+	if secret != "" {
+		doc["secret"] = secret
+	}
 	if id != "" {
 		doc["id"] = id
 	}

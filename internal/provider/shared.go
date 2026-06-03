@@ -5,6 +5,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
+// refObj wraps a FHIR reference string in a {"reference": "..."} map.
+func refObj(ref string) map[string]any { return map[string]any{"reference": ref} }
+
 // strOrEmpty returns "" for null/unknown, else the string value.
 func strOrEmpty(s types.String) string {
 	if s.IsNull() || s.IsUnknown() {

@@ -59,8 +59,6 @@ func (r *projectMembershipResource) Configure(_ context.Context, req resource.Co
 	r.data = d
 }
 
-func refObj(ref string) map[string]any { return map[string]any{"reference": ref} }
-
 func (m projectMembershipModel) toFHIR(id string) ([]byte, error) {
 	doc := map[string]any{
 		"resourceType": "ProjectMembership",
