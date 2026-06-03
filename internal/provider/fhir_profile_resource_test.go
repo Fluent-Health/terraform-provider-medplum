@@ -27,8 +27,23 @@ resource "medplum_fhir_profile" "test" {
     derivation     = "constraint"
     snapshot = {
       element = [
-        { id = "Patient", path = "Patient" },
-        { id = "Patient.active", path = "Patient.active", min = 1, max = "1" }
+        {
+          id         = "Patient"
+          path       = "Patient"
+          definition = "A patient."
+          min        = 0
+          max        = "*"
+          base       = { path = "Patient", min = 0, max = "*" }
+        },
+        {
+          id         = "Patient.active"
+          path       = "Patient.active"
+          definition = "Whether this patient record is in active use."
+          min        = 1
+          max        = "1"
+          base       = { path = "Patient.active", min = 0, max = "1" }
+          type       = [{ code = "boolean" }]
+        }
       ]
     }
   })
