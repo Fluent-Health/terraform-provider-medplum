@@ -37,6 +37,10 @@ terraform-plugin-framework, published to the public Terraform Registry.
 | Auth | **Gateway-agnostic, native Medplum methods**: client-credentials, static bearer token, super-admin email+password login |
 | CI | **GitHub Actions** against a live Medplum (docker-compose) |
 | Sequencing | **One spec**, phased implementation plan |
+| Client + access model | **Two symmetric FHIR resources** (`client_application` + `project_membership`); no admin `/client` or `/invite` endpoints |
+| `project_membership` | **Pure FHIR CRUD** generic profile binder (clients, bots, users) — `accessPolicy` lives here, not on the client |
+| Human users | **`medplum_user` via plain FHIR** (no invite email); optional write-only password via `/setpassword`. The `invite` flow is **out of scope** |
+| Client secret | **Server-generated via `$rotate-secret`** by default; **optional explicit `secret`** override |
 
 ## Goals (Milestone 1)
 
@@ -44,8 +48,9 @@ terraform-plugin-framework, published to the public Terraform Registry.
 2. Generic `medplum_fhir_resource` with plan-time base-R4 JSON-schema validation and stable
    drift handling (server-managed fields ignored). Reaches functional parity with current
    `restapi_object` usage in `fhir-static-data`.
-3. Four typed abstraction resources: `medplum_project`, `medplum_project_membership`
-   (incl. the admin invite flow), `medplum_client_application`, `medplum_access_policy`.
+3. Five typed abstraction resources, each a symmetric 1:1 wrapper over one underlying Medplum
+   FHIR resource: `medplum_access_policy`, `medplum_client_application`, `medplum_project_membership`,
+   `medplum_user`, `medplum_project`.
 4. Acceptance tests (`TF_ACC`) run against a live Medplum in GitHub Actions; release pipeline
    publishes signed builds to the Terraform Registry.
 
@@ -53,8 +58,12 @@ terraform-plugin-framework, published to the public Terraform Registry.
 
 * Large / imported CodeSystem (100k+ concepts) resource.
 * Validation against custom `StructureDefinition` profiles / FHIRPath constraints.
-* Fully-typed resources for every R4 resource type (only the generic resource + the four typed
+* Fully-typed resources for every R4 resource type (only the generic resource + the five typed
   abstractions in M1).
+* The **`invite` flow** (`POST /admin/projects/:id/invite`): it is imperative and side-effectful
+  (sends email, mints password-reset tokens, conditional upserts, SES error semantics) and does
+  not fit a declarative resource. Human onboarding via invite is a deliberate later-phase concern;
+  `medplum_user` covers IaC-provisioned (machine/externalId/managed-password) users without email.
 * Migrating `fhir-static-data` to consume this provider (downstream change, tracked separately).
 * Subscriptions, Bots, and other concepts as typed resources (handled by the generic resource in M1).
 
@@ -162,34 +171,115 @@ parity with the existing `.fhir.json` files, avoids hand-modeling every R4 type,
 fidelity for arbitrary resources. The typed-object alternative was rejected for M1 (huge surface,
 worse round-trip fidelity).
 
+### Medplum source findings (validated against v5.1.14)
+
+These behaviors were confirmed by reading the Medplum server source and drive the design below:
+
+* **`accessPolicy` lives on `ProjectMembership`, not `ClientApplication`.** `createClient`
+  (`packages/server/src/admin/client.ts`) creates a `ClientApplication` with a generated `secret`
+  **and** a `ProjectMembership` whose `user` and `profile` both reference the client, carrying the
+  `accessPolicy`. The admin `/client` endpoint is just that bundle. So one logical "client" is two
+  server objects, and access control is set on the membership.
+* **The `invite` flow is heavy and imperative** (`packages/server/src/admin/invite.ts`):
+  upserts a `User` (bcrypt password hash or password-reset token for new users), upserts a profile
+  (Patient/Practitioner/RelatedPerson), upserts a membership, and sends an email — returning
+  HTTP 200 + an error `OperationOutcome` when SES is unconfigured. Deliberately **excluded** (see Non-Goals).
+* **A plain `POST /fhir/R4/ClientApplication` does not auto-generate a `secret`** — only the admin
+  path calls `generateSecret(32)`. But `secret` is settable via FHIR, and there is a
+  `POST /fhir/R4/ClientApplication/:id/$rotate-secret` operation (`fhir/routes.ts:394`).
+* **User** (`packages/fhirtypes/dist/User.d.ts`) fields: `firstName`, `lastName`, `email`,
+  `externalId`, `admin`, `passwordHash`, `mfaRequired`, `project` (presence ⇒ project-scoped;
+  absence ⇒ server-scoped). Passwords are set via `POST /admin/projects/:projectId/setpassword`
+  (`admin/project.ts:26`) — server-side hash, **no email sent**.
+* **Project creation** is the `POST /fhir/R4/Project/$init` operation (`fhir/routes.ts:241`,
+  `fhir/operations/projectinit.ts`), which creates the Project and the owner membership.
+
 ### Typed abstraction resources
 
-Each is a thin, hand-modeled resource that hides a non-RESTful or multi-step Medplum flow behind a
-clean Terraform schema. Full attribute schemas below.
+Each is a thin, hand-modeled resource that maps **1:1 to one underlying Medplum FHIR resource**,
+with fully symmetric create/update (no admin convenience endpoints, no hidden second object).
 
 #### `medplum_client_application`
 
-Hides the create/update asymmetry seen today (`POST /admin/projects/{id}/client` to create —
-returning a `secret` — vs `PUT /fhir/R4/ClientApplication/{id}` to update; `accessPolicy` sent only
-on create).
+Manages only the `ClientApplication` FHIR resource. Access control is attached separately via
+`medplum_project_membership` (because `accessPolicy` lives on the membership — see findings).
 
 ```hcl
 resource "medplum_client_application" "search" {
-  project_id     = var.emr_project_id
-  name           = "Search Service"
-  description    = "Client application for search functionality"
-  access_policy  = "AccessPolicy/${medplum_access_policy.search.id}"  # optional
-  redirect_uri   = "..."   # optional
+  project_id   = var.emr_project_id
+  name         = "Search Service"
+  description  = "Client application for search functionality"
+  redirect_uri = "..."   # optional
+  secret       = "..."   # optional, sensitive — explicit override; omit to have the server generate one
   # identity_provider { authorize_url, token_url, user_info_url, client_id, client_secret, use_subject }  # optional block
 }
-# computed: id, secret (sensitive)
+# computed: id, secret (sensitive — populated by $rotate-secret when not set explicitly)
 ```
 
-* **Create** → `POST /admin/projects/{project_id}/client`; capture `id` + `secret`.
-* **Read/Update** → `GET`/`PUT /{fhir_path}/ClientApplication/{id}`.
+* **Create** → `POST /{fhir_path}/ClientApplication` (sets `meta.project`). If `secret` is set,
+  it is sent in the body; otherwise the provider calls `POST .../ClientApplication/{id}/$rotate-secret`
+  so Medplum generates one, then reads it into sensitive computed state.
+* **Read/Update** → `GET`/`PUT /{fhir_path}/ClientApplication/{id}`. Changing `secret` (set→unset or
+  value change) reconciles via `$rotate-secret` or a `PUT`.
 * **Delete** → `DELETE /{fhir_path}/ClientApplication/{id}`.
-* `secret` is `Sensitive`, computed; consumers wire it to GCP Secret Manager themselves
-  (the provider does not touch GCP).
+* `secret` is `Sensitive`; consumers wire it to GCP Secret Manager themselves (provider never
+  touches GCP).
+
+#### `medplum_project_membership`
+
+Pure FHIR CRUD over `ProjectMembership` — the **generic profile binder** that attaches any profile
+(ClientApplication, Bot, User/Practitioner/Patient) to a project with an access policy and admin
+flag. No `invite`, no email, no implicit user/profile creation.
+
+```hcl
+# Bind a client application (client is its own user + profile)
+resource "medplum_project_membership" "search" {
+  project_id    = var.emr_project_id
+  user          = medplum_client_application.search.id   # "ClientApplication/xxx"
+  profile       = medplum_client_application.search.id
+  access_policy = medplum_access_policy.search.id        # "AccessPolicy/xxx"
+  admin         = false
+}
+
+# Bind an existing user to a project with a profile
+resource "medplum_project_membership" "clinician" {
+  project_id    = var.emr_project_id
+  user          = medplum_user.jane.id
+  profile       = "Practitioner/..."
+  access_policy = medplum_access_policy.clinician.id
+  # access = [{ policy = "...", parameter = [...] }]   # optional parameterized policies
+}
+```
+
+* CRUD via `/{fhir_path}/ProjectMembership`. `project`, `user`, `profile` are `ForceNew`
+  (changing the binding identity recreates); `access_policy`, `access[]`, `admin` update in place.
+* Open question (see Risks): whether plain FHIR delete is sufficient or the admin
+  `DELETE /admin/projects/:id/members/:membershipId` cleanup is needed.
+
+#### `medplum_user`
+
+Plain FHIR CRUD over the `User` resource — for IaC-provisioned users (machine, externalId/IdP, or
+managed-password), **without** the invite email flow.
+
+```hcl
+resource "medplum_user" "jane" {
+  first_name   = "Jane"
+  last_name    = "Doe"
+  email        = "jane@example.com"   # optional
+  external_id  = "..."                # optional (external IdP)
+  scope        = "project"            # "project" (sets meta.project) or "server" (default per Medplum)
+  project_id   = var.emr_project_id   # required when scope = "project"
+  admin        = false
+  mfa_required = false
+  password     = "..."                # optional, write-only, sensitive — applied via /setpassword (no email)
+}
+# computed: id
+```
+
+* **Create/Read/Update/Delete** → `/{fhir_path}/User`. When `password` is set, after the
+  create/update the provider calls `POST /admin/projects/{project_id}/setpassword` (server-side
+  hash, no email). `password` is write-only and never read back; drift on it is not tracked.
+* `password` requires `email` + a project scope (constraint of `/setpassword`); validated at plan time.
 
 #### `medplum_access_policy`
 
@@ -216,61 +306,22 @@ resource "medplum_access_policy" "patient" {
 
 #### `medplum_project`
 
-Super-admin create/configure of a Medplum Project. Requires the super-admin login auth method.
+Create/configure a Medplum Project. Requires the super-admin auth method.
 
 ```hcl
 resource "medplum_project" "tenant" {
-  name          = "..."
-  description   = "..."
-  features      = ["bots", "cron"]   # optional
+  name        = "..."
+  description = "..."
+  features    = ["bots", "cron"]   # optional
   default_patient_access_policy = "AccessPolicy/..."  # optional
   # strict_mode, setting{}, system_setting{} as needed
 }
-# computed: id
+# computed: id, owner (membership)
 ```
 
-* **Create** → `POST /admin/projects` (super-admin). **Read/Update/Delete** via super-admin
-  FHIR `/{fhir_path}/Project/{id}`.
+* **Create** → `POST /{fhir_path}/Project/$init` (creates Project + owner membership).
+* **Read/Update/Delete** → `/{fhir_path}/Project/{id}` (super-admin).
 * Provider surfaces a clear error if a non-super-admin auth method is configured.
-
-#### `medplum_project_membership`
-
-The most intricate resource: links a User to a Project with an access-policy assignment and admin
-flag. Supports two modes via a discriminating attribute, kept in one resource so the membership is
-the single managed object:
-
-```hcl
-# Mode A: invite (user does not yet exist) — atomic User + profile + membership
-resource "medplum_project_membership" "clinician" {
-  project_id = var.emr_project_id
-  invite {
-    profile_resource_type = "Practitioner"   # or "Patient"
-    first_name            = "Jane"
-    last_name             = "Doe"
-    email                 = "jane@example.com"
-    send_email            = false
-  }
-  access_policy = "AccessPolicy/${medplum_access_policy.clinician.id}"
-  admin         = false
-}
-
-# Mode B: bind an existing user/profile to the project
-resource "medplum_project_membership" "bot_membership" {
-  project_id    = var.emr_project_id
-  user          = "User/..."       # existing user reference
-  profile       = "Bot/..."        # existing profile reference
-  access_policy = "AccessPolicy/..."
-  admin         = false
-}
-```
-
-* **invite mode** → `POST /admin/projects/{project_id}/invite` with the profile + membership
-  payload; the response yields the created `ProjectMembership` (and `User`/profile). Store the
-  membership `id`.
-* **bind mode** → `POST /{fhir_path}/ProjectMembership`.
-* **Read/Update/Delete** → `/{fhir_path}/ProjectMembership/{id}`. Updating `access_policy`/`admin`
-  is a `PUT`. `invite` block attributes are `ForceNew` (changing identity recreates).
-* Validation: exactly one of (`invite` block) or (`user`+`profile`) must be set.
 
 ## Testing strategy
 
@@ -314,28 +365,36 @@ One spec, but the plan should land these independently and in order:
    CI skeleton (lint + unit). Dev-override consumption documented.
 2. **Generic resource**: `fhirschema` validator (embed R4 schema) + `medplum_fhir_resource` with
    drift handling; acceptance test + live-Medplum CI job.
-3. **Typed resources**: `medplum_access_policy`, then `medplum_client_application`, then
-   `medplum_project_membership` (invite + bind), then `medplum_project` (super-admin).
-4. **Release**: `tfplugindocs`, examples, GoReleaser + signing, registry publish.
+3. **Typed resources** (each symmetric FHIR CRUD, in order): `medplum_access_policy`,
+   `medplum_client_application` (+ `$rotate-secret`), `medplum_project_membership`, `medplum_user`
+   (+ `/setpassword`), `medplum_project` (super-admin `$init`).
+4. **Release**: `tfplugindocs`, examples (incl. the composed client+membership pattern), GoReleaser
+   + signing, registry publish.
 
 ## Risks & open questions
 
-* **Medplum API specifics** (exact admin payload/response shapes for invite, client creation,
-  super-admin project creation) must be verified against the pinned Medplum version during
-  implementation — treat the endpoint paths above as the current best understanding from
-  `fhir-static-data` + Medplum docs, to be confirmed by acceptance tests.
+* **Medplum API specifics confirmed against v5.1.14** (see Medplum source findings) — but the exact
+  request/response shapes for `$rotate-secret`, `$init`, `/setpassword`, and ProjectMembership
+  delete semantics must still be pinned by acceptance tests against the CI Medplum version.
+* **ProjectMembership delete**: confirm plain FHIR `DELETE /ProjectMembership/{id}` fully removes
+  access, or whether the admin `DELETE /admin/projects/:id/members/:membershipId` cleanup is required.
+* **`medplum_user` password**: `/setpassword` is project-scoped and email-keyed; server-scoped or
+  externalId-only users can't use it. Plan-time validation must enforce the `email` + project-scope
+  precondition, and treat `password` as write-only (no drift detection).
+* **Client secret rotation drift**: when `secret` is unset (server-generated), ensure re-reads do not
+  produce perpetual diffs; the stored computed secret must be treated as authoritative until an
+  explicit change.
 * **R4 schema embedding**: the existing `fhir.schema.json` (~61k lines) will be embedded via
-  `go:embed`; validator choice (e.g. `santhosh-tekuri/jsonschema`) and startup cost to be
-  validated.
+  `go:embed`; validator choice (e.g. `santhosh-tekuri/jsonschema`) and startup cost to be validated.
 * **Super-admin in CI**: seeding a super-admin against a fresh docker-compose Medplum needs a
   reproducible bootstrap; confirm the supported mechanism for the pinned version.
-* **`medplum_project_membership` modes** in one resource vs two resources — revisit if the
-  discriminator proves awkward in practice.
 
 ## Future phases (not in this spec)
 
 * `medplum_codesystem_import` / "large CodeSystem" resource for 100k+ concepts via Medplum's
   CodeSystem import operation (out-of-band upload, async import, state tracking).
 * Custom `StructureDefinition` profile validation at plan time.
+* Human onboarding via the `invite` flow (email + password-reset) — likely a dedicated
+  `medplum_invite` resource (or a non-resource action) that owns the side effects explicitly.
 * Additional typed resources (Subscription, Bot, etc.) as demand warrants.
 * Migrating `fhir-static-data` to consume this provider.
