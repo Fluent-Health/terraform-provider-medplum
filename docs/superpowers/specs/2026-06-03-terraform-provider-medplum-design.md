@@ -7,10 +7,10 @@
 
 ## Context and Problem Statement
 
-Fluent Health configures its Medplum EMR through the [`fhir-static-data`](../../../../fhir-static-data)
-repo, which uses the generic Mastercard `restapi` Terraform provider to push `*.fhir.json`
-files to Medplum's FHIR R4 endpoint, plus an `admin` provider alias for non-RESTful operations
-(e.g. `ClientApplication` creation via `POST /admin/projects/{id}/client`).
+A common way to manage Medplum configuration today is the generic Mastercard `restapi` Terraform
+provider: push `*.fhir.json` files to Medplum's FHIR R4 endpoint, plus a second provider alias for
+the non-RESTful admin operations (e.g. `ClientApplication` creation via
+`POST /admin/projects/{id}/client`).
 
 This works but has sharp edges:
 
@@ -46,8 +46,8 @@ terraform-plugin-framework, published to the public Terraform Registry.
 
 1. Provider scaffold + gateway-agnostic, multi-method auth.
 2. Generic `medplum_fhir_resource` with plan-time base-R4 JSON-schema validation and stable
-   drift handling (server-managed fields ignored). Reaches functional parity with current
-   `restapi_object` usage in `fhir-static-data`.
+   drift handling (server-managed fields ignored). Reaches functional parity with the generic
+   `restapi`-provider approach.
 3. Five typed abstraction resources, each a symmetric 1:1 wrapper over one underlying Medplum
    FHIR resource: `medplum_access_policy`, `medplum_client_application`, `medplum_project_membership`,
    `medplum_user`, `medplum_project`.
@@ -64,7 +64,7 @@ terraform-plugin-framework, published to the public Terraform Registry.
   (sends email, mints password-reset tokens, conditional upserts, SES error semantics) and does
   not fit a declarative resource. Human onboarding via invite is a deliberate later-phase concern;
   `medplum_user` covers IaC-provisioned (machine/externalId/managed-password) users without email.
-* Migrating `fhir-static-data` to consume this provider (downstream change, tracked separately).
+* Migrating existing `restapi`-based configurations to this provider (downstream change).
 * Subscriptions, Bots, and other concepts as typed resources (handled by the generic resource in M1).
 
 ## Architecture
@@ -76,7 +76,7 @@ internal/
   provider/       # provider definition, schema, configure (auth method selection)
   client/         # thin Medplum HTTP client: token acquisition + FHIR + admin endpoints
   fhirschema/     # embedded R4 fhir.schema.json + plan-time validator
-  resources/      # generic resource + 4 typed resources, each with acceptance tests
+  resources/      # generic resource + 5 typed resources, each with acceptance tests
   acctest/        # shared acceptance-test helpers (provider factory, env guards)
 docs/             # tfplugindocs-generated provider docs
 examples/         # registry examples per resource
@@ -92,13 +92,13 @@ Each unit has one purpose and a clear interface:
 
 ### Provider configuration & auth
 
-The provider is **gateway-agnostic**: `base_url` may point at the Gravitee gateway or directly at
-Medplum. All Medplum-native auth methods are supported so it works without the gateway (local dev,
-CI, non-gateway consumers).
+The provider is **gateway-agnostic**: `base_url` may point at an API gateway that fronts Medplum or
+directly at Medplum. All Medplum-native auth methods are supported so it works without a gateway
+(local dev, CI, non-gateway consumers).
 
 ```hcl
 provider "medplum" {
-  base_url  = "https://gateway.fluent.health/medplum" # gateway OR direct Medplum base
+  base_url  = "https://medplum.example.com" # gateway in front of Medplum, OR direct Medplum base
   fhir_path = "/fhir/R4"   # optional; default "/fhir/R4"
   token_url = "..."        # optional; default "${base_url}/oauth2/token"
 
@@ -106,7 +106,7 @@ provider "medplum" {
   # (a) OAuth2 client-credentials
   client_id     = "..."
   client_secret = "..."
-  # (b) pre-obtained bearer token (e.g. a Gravitee-exchanged token, or CI)
+  # (b) pre-obtained bearer token (e.g. a gateway-exchanged token, or CI)
   access_token  = "..."
   # (c) super-admin email + password login (required for Project creation)
   email    = "..."
@@ -124,7 +124,7 @@ provider "medplum" {
   * static token → used as-is as `Authorization: Bearer`.
   * email/password → `POST {base_url}/auth/login` then exchange for an access token.
 * The `client` exposes method-agnostic helpers: `FHIRCreate/Read/Update/Delete`, `FHIRSearch`,
-  and admin helpers (`AdminCreateClient`, `AdminInvite`, `AdminCreateProject`).
+  FHIR operation invocation (`$rotate-secret`, `Project/$init`), and the `/setpassword` admin call.
 
 ### Generic FHIR resource: `medplum_fhir_resource`
 
@@ -206,7 +206,7 @@ Manages only the `ClientApplication` FHIR resource. Access control is attached s
 
 ```hcl
 resource "medplum_client_application" "search" {
-  project_id   = var.emr_project_id
+  project_id   = var.project_id
   name         = "Search Service"
   description  = "Client application for search functionality"
   redirect_uri = "..."   # optional
@@ -222,8 +222,8 @@ resource "medplum_client_application" "search" {
 * **Read/Update** → `GET`/`PUT /{fhir_path}/ClientApplication/{id}`. Changing `secret` (set→unset or
   value change) reconciles via `$rotate-secret` or a `PUT`.
 * **Delete** → `DELETE /{fhir_path}/ClientApplication/{id}`.
-* `secret` is `Sensitive`; consumers wire it to GCP Secret Manager themselves (provider never
-  touches GCP).
+* `secret` is `Sensitive`; consumers wire it into their own secret store as needed (the provider
+  never touches any external secret manager).
 
 #### `medplum_project_membership`
 
@@ -234,7 +234,7 @@ flag. No `invite`, no email, no implicit user/profile creation.
 ```hcl
 # Bind a client application (client is its own user + profile)
 resource "medplum_project_membership" "search" {
-  project_id    = var.emr_project_id
+  project_id    = var.project_id
   user          = medplum_client_application.search.id   # "ClientApplication/xxx"
   profile       = medplum_client_application.search.id
   access_policy = medplum_access_policy.search.id        # "AccessPolicy/xxx"
@@ -243,7 +243,7 @@ resource "medplum_project_membership" "search" {
 
 # Bind an existing user to a project with a profile
 resource "medplum_project_membership" "clinician" {
-  project_id    = var.emr_project_id
+  project_id    = var.project_id
   user          = medplum_user.jane.id
   profile       = "Practitioner/..."
   access_policy = medplum_access_policy.clinician.id
@@ -268,7 +268,7 @@ resource "medplum_user" "jane" {
   email        = "jane@example.com"   # optional
   external_id  = "..."                # optional (external IdP)
   scope        = "project"            # "project" (sets meta.project) or "server" (default per Medplum)
-  project_id   = var.emr_project_id   # required when scope = "project"
+  project_id   = var.project_id   # required when scope = "project"
   admin        = false
   mfa_required = false
   password     = "..."                # optional, write-only, sensitive — applied via /setpassword (no email)
@@ -346,16 +346,17 @@ resource "medplum_project" "tenant" {
 * `release.yml` on tag `v*`: GoReleaser builds cross-platform archives, signs with the GPG key
   (repo secret), publishes the GitHub release. Registry publishing uses the standard
   Terraform Registry GitHub App for `Fluent-Health/terraform-provider-medplum`.
-* Pin the Medplum server image version explicitly (consistent with the `fh:upgrades` discipline);
-  document the supported Medplum version range in the README.
+* Pin the Medplum server image version explicitly; document the supported Medplum version range
+  in the README.
 
 ## Distribution
 
 * Public GitHub repo `Fluent-Health/terraform-provider-medplum`; registry address
   `registry.terraform.io/Fluent-Health/medplum`.
-* `LICENSE` (e.g. MPL-2.0 or Apache-2.0 — confirm during release), `docs/` generated via
-  `tfplugindocs`, `examples/` per resource. Follow the `fh:publish-opensource` process for the
-  public release (secret scan, CTO approval issue, SECURITY.md/CONTRIBUTING.md).
+* `LICENSE` (Apache-2.0, matching Medplum — confirm during release), `docs/` generated via
+  `tfplugindocs`, `examples/` per resource, plus `README.md`, `SECURITY.md`, and `CONTRIBUTING.md`.
+* Standard pre-publication hygiene before going public: secret scan of the full history and a
+  review that no internal-only references remain in the repo.
 
 ## Implementation phasing (for the plan)
 
@@ -397,4 +398,4 @@ One spec, but the plan should land these independently and in order:
 * Human onboarding via the `invite` flow (email + password-reset) — likely a dedicated
   `medplum_invite` resource (or a non-resource action) that owns the side effects explicitly.
 * Additional typed resources (Subscription, Bot, etc.) as demand warrants.
-* Migrating `fhir-static-data` to consume this provider.
+* Migrating existing `restapi`-based Medplum configurations to consume this provider.
