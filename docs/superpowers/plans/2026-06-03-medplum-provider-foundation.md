@@ -369,7 +369,7 @@ func (c Config) tokenURL() string {
 type Client struct {
 	baseURL  string
 	fhirPath string
-	http     *http.Client
+	httpClient *http.Client
 }
 
 // New validates the config and returns a Client whose underlying transport
@@ -378,19 +378,22 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	ts, err := cfg.tokenSource(ctx)
-	if err != nil {
-		return nil, err
-	}
+	// Inject the base HTTP client into ctx BEFORE building the token source:
+	// clientcredentials.TokenSource captures ctx, so the custom client must be
+	// present for token refresh to use it (not just for FHIR requests).
 	base := cfg.HTTPClient
 	if base == nil {
 		base = http.DefaultClient
 	}
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, base)
+	ts, err := cfg.tokenSource(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return &Client{
-		baseURL:  strings.TrimRight(cfg.BaseURL, "/"),
-		fhirPath: cfg.fhirPath(),
-		http:     oauth2.NewClient(ctx, ts),
+		baseURL:    strings.TrimRight(cfg.BaseURL, "/"),
+		fhirPath:   cfg.fhirPath(),
+		httpClient: oauth2.NewClient(ctx, ts),
 	}, nil
 }
 ```
@@ -633,7 +636,7 @@ func (c *Client) do(ctx context.Context, method, url string, body []byte) ([]byt
 	}
 	req.Header.Set("Accept", "application/fhir+json")
 
-	resp, err := c.http.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
