@@ -2,6 +2,7 @@ package provider
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"testing"
 
@@ -98,6 +99,33 @@ resource "medplum_fhir_profile" "test" {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{Config: cfg, ExpectError: regexp.MustCompile("snapshot")},
+		},
+	})
+}
+
+func TestAccFHIRProfile_fromFSH(t *testing.T) {
+	sdPath := os.Getenv("MEDPLUM_TEST_PROFILE_SD")
+	if sdPath == "" {
+		t.Skip("MEDPLUM_TEST_PROFILE_SD not set (FSH->SD build step did not run)")
+	}
+	raw, err := os.ReadFile(sdPath)
+	if err != nil {
+		t.Fatalf("read generated SD: %v", err)
+	}
+	cfg := fmt.Sprintf(`
+resource "medplum_fhir_profile" "fsh" {
+  structure_definition = jsonencode(jsondecode(%q))
+}
+`, string(raw))
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{Config: cfg, Check: resource.ComposeAggregateTestCheckFunc(
+				resource.TestCheckResourceAttrSet("medplum_fhir_profile.fsh", "id"),
+				resource.TestCheckResourceAttrSet("medplum_fhir_profile.fsh", "url"),
+			)},
+			{Config: cfg, PlanOnly: true},
 		},
 	})
 }
