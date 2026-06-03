@@ -64,4 +64,11 @@ resource "medplum_project_membership" "api_service" {
 
 - `id` (String) The ID of this resource.
 
+## Import
 
+Import is supported using the following syntax:
+
+```shell
+# medplum_project_membership can be imported by its ProjectMembership id
+terraform import medplum_project_membership.example <id>
+```

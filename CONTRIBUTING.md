@@ -76,7 +76,7 @@ Releases are cut manually by a maintainer:
 
 1. Update `CHANGELOG.md`.
 2. Tag the commit: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-3. The [release workflow](.github/workflows/release-go.yml) builds, GPG-signs, and publishes the GitHub release via GoReleaser.
+3. The [release workflow](.github/workflows/release.yml) builds, GPG-signs, and publishes the GitHub release via GoReleaser.
 4. The Terraform Registry picks up the new version via its GitHub webhook.
 
 ## No CLA required

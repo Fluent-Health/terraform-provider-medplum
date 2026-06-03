@@ -29,7 +29,7 @@ terraform {
   required_providers {
     medplum = {
       source  = "Fluent-Health/medplum"
-      version = "~> 0.1"
+      version = "~> 1.0"
     }
   }
 }
@@ -57,17 +57,19 @@ provider "medplum" {
 ### Example resource
 
 ```hcl
-resource "medplum_access_policy" "read_only_observations" {
-  resource_json = jsonencode({
-    resourceType = "AccessPolicy"
-    name         = "ReadOnlyObservations"
-    resource = [
-      {
-        resourceType = "Observation"
-        readonly     = true
-      }
-    ]
-  })
+resource "medplum_access_policy" "read_only_clinical" {
+  name        = "read-only-clinical"
+  compartment = "Patient/%patient.id"
+
+  resource {
+    resource_type = "Patient"
+    interaction   = ["read", "search"]
+  }
+
+  resource {
+    resource_type = "Observation"
+    interaction   = ["read", "search"]
+  }
 }
 ```
 
@@ -113,7 +115,7 @@ git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-The release workflow lives in [`.github/workflows/release-go.yml`](.github/workflows/release-go.yml) and requires the `GPG_PRIVATE_KEY` and `PASSPHRASE` secrets to be configured in the `release` GitHub Environment (see [CONTRIBUTING.md](./CONTRIBUTING.md) for one-time setup instructions).
+The release workflow lives in [`.github/workflows/release.yml`](.github/workflows/release.yml) and requires the `GPG_PRIVATE_KEY` and `PASSPHRASE` secrets to be configured in the `release` GitHub Environment (see [CONTRIBUTING.md](./CONTRIBUTING.md) for one-time setup instructions).
 
 ## Contributing
 

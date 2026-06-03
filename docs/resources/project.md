@@ -42,4 +42,11 @@ resource "medplum_project" "patient_portal" {
 
 - `id` (String) The ID of this resource.
 
+## Import
 
+Import is supported using the following syntax:
+
+```shell
+# medplum_project can be imported by its Project id
+terraform import medplum_project.example <id>
+```

@@ -3,7 +3,7 @@
 ## Overview
 
 The `docker-compose.test.yml` stack starts a self-contained Medplum server (image
-`medplum/medplum-server:5.0.10` — pinned to the deployed version) backed by Postgres 16 and Redis 7.
+`medplum/medplum-server:5.0.10` — pinned to Medplum 5.0.10) backed by Postgres 16 and Redis 7.
 
 The server `ENTRYPOINT` is `node ... packages/server/dist/index.js`; the config source
 is passed as the `command:` argument. We use **`env`**, which makes the server read its
@@ -11,10 +11,8 @@ configuration from `MEDPLUM_*` environment variables (see `src/config/loader.ts`
 `case 'env'` branch; without an argument the server defaults to
 `file:medplum.config.json` and fails to boot).
 
-The pinned version is **5.0.10** (the deployed version). The first 5.0.10 CI run
-re-confirms that auth/PKCE, rate-limit bypass (`MEDPLUM_DEFAULT_RATE_LIMIT: "-1"`),
-`$init` seeding, and StructureDefinition (`sdf`) CRUD behaviors are unchanged from
-5.1.14 (consistent with the Phase 2 profile-validation matrix verification).
+The pinned version is **5.0.10**. auth/PKCE, rate-limit bypass (`MEDPLUM_DEFAULT_RATE_LIMIT: "-1"`),
+`$init` seeding, and StructureDefinition (`sdf`) CRUD behaviors have been verified against this version.
 
 ## Default admin credentials (confirmed against v5.0.10 source)
 
@@ -57,9 +55,9 @@ provider's `login()` implements the full native flow:
 PKCE is **required**: a clientless authorization_code exchange without a `code_challenge` is
 rejected with `invalid_request: "Missing verification context"` (server `oauth/token.ts`).
 
-## Resolved follow-ups (first green CI run, 2026-06-03)
+## Notes
 
-1. **`/auth/login` response shape** — resolved: it's the PKCE login → `/oauth2/token`
+1. **`/auth/login` response shape** — it's the PKCE login → `/oauth2/token`
    exchange documented above (not a direct `accessToken`).
 2. **JWT signing / required config** — the server boots and issues tokens with only the env
    vars in `docker-compose.test.yml`; no explicit signing key needed.

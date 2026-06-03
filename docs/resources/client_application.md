@@ -67,4 +67,11 @@ Optional:
 - `use_subject` (Boolean)
 - `user_info_url` (String)
 
+## Import
 
+Import is supported using the following syntax:
+
+```shell
+# medplum_client_application can be imported by its ClientApplication id
+terraform import medplum_client_application.example <id>
+```

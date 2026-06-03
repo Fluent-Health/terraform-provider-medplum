@@ -106,4 +106,11 @@ Optional:
 - `readonly` (Boolean)
 - `readonly_fields` (List of String) Read-only fields. Omit (do not set to []) when none.
 
+## Import
 
+Import is supported using the following syntax:
+
+```shell
+# medplum_access_policy can be imported by its AccessPolicy id
+terraform import medplum_access_policy.example <id>
+```

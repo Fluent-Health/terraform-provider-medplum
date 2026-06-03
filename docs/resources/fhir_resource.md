@@ -58,4 +58,11 @@ resource "medplum_fhir_resource" "blood_types" {
 - `last_updated` (String)
 - `version_id` (String)
 
+## Import
 
+Import is supported using the following syntax:
+
+```shell
+# medplum_fhir_resource can be imported using the "ResourceType/id" format.
+terraform import medplum_fhir_resource.example ValueSet/<id>
+```

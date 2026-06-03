@@ -72,4 +72,12 @@ resource "medplum_fhir_profile" "active_patient" {
 - `url` (String) StructureDefinition.url.
 - `version_id` (String)
 
+## Import
 
+Import is supported using the following syntax:
+
+```shell
+# medplum_fhir_profile can be imported by its StructureDefinition id,
+# or using the "StructureDefinition/<id>" format.
+terraform import medplum_fhir_profile.example <id>
+```

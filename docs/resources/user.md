@@ -55,4 +55,11 @@ resource "medplum_user" "admin_user" {
 
 - `id` (String) The ID of this resource.
 
+## Import
 
+Import is supported using the following syntax:
+
+```shell
+# medplum_user can be imported by its User id
+terraform import medplum_user.example <id>
+```
