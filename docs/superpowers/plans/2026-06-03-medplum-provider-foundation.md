@@ -1163,6 +1163,14 @@ Run: `go build ./... 2>&1 | head` — Expected: error `undefined: NewFHIRResourc
 
 ## Task 7: `medplum_fhir_resource` with plan-time validation, CRUD, drift, import
 
+> **Drift model updated during implementation (commit `010e902`).** Code review found that
+> Medplum stamps `meta.project`/`author`/`compartment` onto every resource, which the
+> `StripServerFields`+`Equal` approach below would treat as perpetual drift. The committed
+> implementation instead uses a **subset/containment** model: `fhirjson.Contains(config, server)`
+> ignores server-only fields, `Read` keeps the user's `body` unless the server no longer satisfies
+> it (genuine drift), and a `semanticJSONBody()` plan modifier suppresses cosmetic diffs. The
+> CRUD/validation/import structure below is otherwise as implemented.
+
 **Files:**
 - Create: `internal/provider/fhir_resource.go`
 - Modify: commit alongside Task 6.
