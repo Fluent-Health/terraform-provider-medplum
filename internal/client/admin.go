@@ -20,6 +20,26 @@ func (c *Client) Operation(ctx context.Context, resourceType, id, op string, bod
 	return c.do(ctx, http.MethodPost, url, body)
 }
 
+// CurrentProjectID returns the project id of the authenticated session via GET /auth/me.
+func (c *Client) CurrentProjectID(ctx context.Context) (string, error) {
+	out, err := c.do(ctx, http.MethodGet, c.baseURL+"/auth/me", nil)
+	if err != nil {
+		return "", err
+	}
+	var me struct {
+		Project struct {
+			ID string `json:"id"`
+		} `json:"project"`
+	}
+	if err := json.Unmarshal(out, &me); err != nil {
+		return "", err
+	}
+	if me.Project.ID == "" {
+		return "", fmt.Errorf("/auth/me returned no project id")
+	}
+	return me.Project.ID, nil
+}
+
 // SetPassword sets a user's password via the project-admin endpoint (no email sent).
 func (c *Client) SetPassword(ctx context.Context, projectID, email, password string) error {
 	body, err := json.Marshal(map[string]string{"email": email, "password": password})

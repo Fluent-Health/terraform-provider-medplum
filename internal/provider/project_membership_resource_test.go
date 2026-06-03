@@ -1,41 +1,75 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 	"testing"
 
+	"github.com/Fluent-Health/terraform-provider-medplum/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
-const testAccMembershipConfig = `
+var discoveredProjectID string
+
+func testAccProjectID(t *testing.T) string {
+	if discoveredProjectID != "" {
+		return discoveredProjectID
+	}
+	cfg := client.Config{
+		BaseURL:      os.Getenv("MEDPLUM_BASE_URL"),
+		Email:        os.Getenv("MEDPLUM_EMAIL"),
+		Password:     os.Getenv("MEDPLUM_PASSWORD"),
+		ClientID:     os.Getenv("MEDPLUM_CLIENT_ID"),
+		ClientSecret: os.Getenv("MEDPLUM_CLIENT_SECRET"),
+		AccessToken:  os.Getenv("MEDPLUM_ACCESS_TOKEN"),
+	}
+	c, err := client.New(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("discover project id: client.New: %v", err)
+	}
+	pid, err := c.CurrentProjectID(context.Background())
+	if err != nil {
+		t.Fatalf("discover project id: %v", err)
+	}
+	discoveredProjectID = pid
+	return pid
+}
+
+func TestAccProjectMembership_bindsClient(t *testing.T) {
+	if os.Getenv("TF_ACC") == "" {
+		t.Skip("acceptance test")
+	}
+	suffix := acctest.RandStringFromCharSet(8, acctest.CharSetAlphaNum)
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
 resource "medplum_access_policy" "p" {
-  name = "tf-acc-mbr-policy"
+  name = "tf-acc-mbr-policy-%[1]s"
   resource { resource_type = "Patient" }
 }
-
 resource "medplum_client_application" "c" {
-  name = "tf-acc-mbr-client"
+  name = "tf-acc-mbr-client-%[1]s"
 }
-
 resource "medplum_project_membership" "m" {
-  project       = "Project/${var_project_id}"
+  project       = "Project/%[2]s"
   user          = medplum_client_application.c.id
   profile       = medplum_client_application.c.id
   access_policy = medplum_access_policy.p.id
 }
-`
-
-func TestAccProjectMembership_bindsClient(t *testing.T) {
-	t.Skip("requires a known project id; enable once project bootstrap exposes MEDPLUM_TEST_PROJECT_ID")
-	// Implementation note for the executor: replace ${var_project_id} with the
-	// CI project id (from MEDPLUM_TEST_PROJECT_ID) and unskip. medplum_client_application.c.id
-	// is "ClientApplication/<uuid>"; user and profile both reference the client.
-	_ = testAccMembershipConfig
-	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps:                    []resource.TestStep{},
+`, suffix, testAccProjectID(t)),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("medplum_project_membership.m", "id"),
+					resource.TestCheckResourceAttrSet("medplum_project_membership.m", "access_policy"),
+				),
+			},
+		},
 	})
 }
 

@@ -1,6 +1,37 @@
 package provider
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+
+	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+)
+
+func TestAccProject_basic(t *testing.T) {
+	suffix := acctest.RandStringFromCharSet(8, acctest.CharSetAlphaNum)
+	name := "tf-acc-project-" + suffix
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`resource "medplum_project" "test" { name = %q }`, name),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("medplum_project.test", "id"),
+					resource.TestCheckResourceAttr("medplum_project.test", "name", name),
+				),
+			},
+			{Config: fmt.Sprintf(`resource "medplum_project" "test" { name = %q }`, name), PlanOnly: true},
+			{
+				Config: fmt.Sprintf(`resource "medplum_project" "test" { name = %q
+  description = "updated" }`, name),
+				Check: resource.TestCheckResourceAttr("medplum_project.test", "description", "updated"),
+			},
+			{ResourceName: "medplum_project.test", ImportState: true, ImportStateVerify: true},
+		},
+	})
+}
 
 func TestProject_toFHIR(t *testing.T) {
 	m := projectModel{
