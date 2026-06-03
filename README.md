@@ -19,7 +19,7 @@ Full per-resource docs in [`docs/resources/`](./docs/resources/).
 ## Requirements
 
 - [Terraform](https://www.terraform.io/downloads.html) >= 1.0
-- [Go](https://golang.org/doc/install) 1.22+ (for building the provider from source)
+- [Go](https://golang.org/doc/install) 1.22+ (for building and testing the provider from source; `make doc` requires Go 1.25+ for the tfplugindocs tool)
 - [Medplum](https://www.medplum.com) server 5.0.x
 
 ## Provider configuration

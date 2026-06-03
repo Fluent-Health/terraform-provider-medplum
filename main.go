@@ -18,7 +18,7 @@ import (
 
 // Run the docs generation tool, check its repository for more information on how it works and how docs
 // can be customized.
-//go:generate go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs generate -provider-name medplum
+//go:generate env GOTOOLCHAIN=go1.25.8 go run -modfile=tools/go.mod github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs generate -provider-name medplum
 
 // version is set by the release build via -ldflags.
 var version = "dev"
