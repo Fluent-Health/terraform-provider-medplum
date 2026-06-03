@@ -9,6 +9,26 @@ import (
 	"testing"
 )
 
+func TestCurrentProjectID(t *testing.T) {
+	c, srv := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/auth/me" {
+			http.Error(w, "bad path", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"project":{"id":"proj-xyz"}}`))
+	})
+	defer srv.Close()
+
+	pid, err := c.CurrentProjectID(context.Background())
+	if err != nil {
+		t.Fatalf("CurrentProjectID: %v", err)
+	}
+	if pid != "proj-xyz" {
+		t.Fatalf("got project id %q, want %q", pid, "proj-xyz")
+	}
+}
+
 func TestSetPassword(t *testing.T) {
 	var gotBody map[string]string
 	c, srv := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
