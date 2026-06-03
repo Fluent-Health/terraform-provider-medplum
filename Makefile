@@ -15,4 +15,7 @@ test:
 testacc:
 	TF_ACC=1 go test ./... -count=1 -v -timeout 30m
 
-.PHONY: default build fmt vet test testacc
+doc:
+	ASDF_TERRAFORM_VERSION=1.12.1 go generate ./...
+
+.PHONY: default build fmt vet test testacc doc

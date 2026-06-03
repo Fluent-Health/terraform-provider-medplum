@@ -1,0 +1,92 @@
+---
+layout: ""
+page_title: "Provider: Medplum"
+description: |-
+  Manage Medplum FHIR resources, projects, access policies, users, and client applications declaratively with Terraform.
+---
+
+# Medplum Provider
+
+A Terraform provider for [Medplum](https://www.medplum.com), an open-source FHIR R4 healthcare platform. Use it to declaratively manage FHIR resources, project structure, access policies, client applications, and user memberships — the same objects you would otherwise manage through the Medplum app or API.
+
+## Resources
+
+### FHIR data
+
+- [`medplum_fhir_resource`](./resources/fhir_resource.md) — any FHIR R4 resource (ValueSet, Questionnaire, etc.)
+- [`medplum_fhir_profile`](./resources/fhir_profile.md) — FHIR R4 StructureDefinition (custom profile), with Medplum enforcement analysis at plan time
+
+### Project structure
+
+- [`medplum_project`](./resources/project.md) — Medplum project (requires super-admin credentials)
+- [`medplum_project_membership`](./resources/project_membership.md) — bind a user or client application to a project with an access policy
+
+### Access control
+
+- [`medplum_access_policy`](./resources/access_policy.md) — fine-grained resource-level access policy
+- [`medplum_client_application`](./resources/client_application.md) — OAuth client application with optional OIDC identity provider
+
+### Users
+
+- [`medplum_user`](./resources/user.md) — Medplum user account
+
+## Authentication
+
+The provider supports three authentication modes; pick one:
+
+| Mode | Arguments | Environment variables |
+|---|---|---|
+| Client credentials (recommended for automation) | `client_id`, `client_secret` | `MEDPLUM_CLIENT_ID`, `MEDPLUM_CLIENT_SECRET` |
+| Bearer token (short-lived CI) | `access_token` | `MEDPLUM_ACCESS_TOKEN` |
+| Super-admin email/password | `email`, `password` | `MEDPLUM_EMAIL`, `MEDPLUM_PASSWORD` |
+
+Set `base_url` (or `MEDPLUM_BASE_URL`) to the address of your Medplum server.
+
+## Quick start
+
+```terraform
+terraform {
+  required_providers {
+    medplum = {
+      source  = "Fluent-Health/medplum"
+      version = "~> 1.0"
+    }
+  }
+}
+
+provider "medplum" {
+  base_url      = "https://medplum.example.com"
+  client_id     = var.medplum_client_id
+  client_secret = var.medplum_client_secret
+}
+
+resource "medplum_fhir_resource" "example_value_set" {
+  resource_type = "ValueSet"
+
+  body = jsonencode({
+    resourceType = "ValueSet"
+    url          = "https://example.com/fhir/ValueSet/blood-types"
+    name         = "BloodTypes"
+    status       = "active"
+    compose = {
+      include = [{
+        system = "http://snomed.info/sct"
+        concept = [
+          { code = "112144000", display = "Blood group A" },
+          { code = "165743006", display = "Blood group B" },
+          { code = "46251000",  display = "Blood group AB" },
+          { code = "58460004",  display = "Blood group O" },
+        ]
+      }]
+    }
+  })
+}
+```
+
+{{ if .HasExample -}}
+## Example Usage
+
+{{tffile .ExampleFile }}
+{{- end }}
+
+{{ .SchemaMarkdown | trimspace }}
