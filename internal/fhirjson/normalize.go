@@ -3,6 +3,7 @@ package fhirjson
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 )
 
 // Canonicalize re-encodes JSON with sorted keys (encoding/json sorts map keys),
@@ -62,4 +63,50 @@ func Equal(a, b []byte) (bool, error) {
 		return false, err
 	}
 	return bytes.Equal(na, nb), nil
+}
+
+// Contains reports whether the server document satisfies the config document:
+// every field the user specified in config is present in server with an equal
+// value. Fields present only in server (e.g. server-managed meta.project,
+// meta.author, narrative text, defaults) are ignored. Arrays must match in
+// length and be element-wise contained (the server does not pad user arrays).
+func Contains(config, server []byte) (bool, error) {
+	var c, s any
+	if err := json.Unmarshal(config, &c); err != nil {
+		return false, err
+	}
+	if err := json.Unmarshal(server, &s); err != nil {
+		return false, err
+	}
+	return contains(c, s), nil
+}
+
+func contains(c, s any) bool {
+	switch cv := c.(type) {
+	case map[string]any:
+		sv, ok := s.(map[string]any)
+		if !ok {
+			return false
+		}
+		for k, v := range cv {
+			child, ok := sv[k]
+			if !ok || !contains(v, child) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		sv, ok := s.([]any)
+		if !ok || len(sv) != len(cv) {
+			return false
+		}
+		for i := range cv {
+			if !contains(cv[i], sv[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return reflect.DeepEqual(c, s)
+	}
 }

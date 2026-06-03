@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -46,6 +48,7 @@ func (r *fhirResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 			"body": schema.StringAttribute{
 				Required:            true,
 				MarkdownDescription: "The FHIR resource as JSON. Do not set 'id'; it is server-assigned.",
+				PlanModifiers:       []planmodifier.String{semanticJSONBody()},
 			},
 			"id":           schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 			"version_id":   schema.StringAttribute{Computed: true},
@@ -110,7 +113,7 @@ func (r *fhirResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRe
 	}
 }
 
-func extractMeta(serverBody []byte) (id, versionID, lastUpdated string) {
+func extractMeta(serverBody []byte) (id, versionID, lastUpdated string, err error) {
 	var doc struct {
 		ID   string `json:"id"`
 		Meta struct {
@@ -118,11 +121,24 @@ func extractMeta(serverBody []byte) (id, versionID, lastUpdated string) {
 			LastUpdated string `json:"lastUpdated"`
 		} `json:"meta"`
 	}
-	_ = json.Unmarshal(serverBody, &doc)
-	return doc.ID, doc.Meta.VersionID, doc.Meta.LastUpdated
+	if err = json.Unmarshal(serverBody, &doc); err != nil {
+		return "", "", "", err
+	}
+	return doc.ID, doc.Meta.VersionID, doc.Meta.LastUpdated, nil
+}
+
+func (r *fhirResource) notConfigured(resp *diag.Diagnostics) bool {
+	if r.data == nil {
+		resp.AddError("Provider not configured", "The Medplum provider was not configured; cannot call the API.")
+		return true
+	}
+	return false
 }
 
 func (r *fhirResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	if r.notConfigured(&resp.Diagnostics) {
+		return
+	}
 	var m fhirResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &m)...)
 	if resp.Diagnostics.HasError() {
@@ -133,7 +149,15 @@ func (r *fhirResource) Create(ctx context.Context, req resource.CreateRequest, r
 		resp.Diagnostics.AddError("Create failed", err.Error())
 		return
 	}
-	id, ver, upd := extractMeta(out)
+	id, ver, upd, err := extractMeta(out)
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid create response", fmt.Sprintf("could not parse server response: %s", err))
+		return
+	}
+	if id == "" {
+		resp.Diagnostics.AddError("Create response missing id", "the server did not return an id for the created resource")
+		return
+	}
 	m.ID = types.StringValue(id)
 	m.VersionID = types.StringValue(ver)
 	m.LastUpdated = types.StringValue(upd)
@@ -141,6 +165,9 @@ func (r *fhirResource) Create(ctx context.Context, req resource.CreateRequest, r
 }
 
 func (r *fhirResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	if r.notConfigured(&resp.Diagnostics) {
+		return
+	}
 	var m fhirResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &m)...)
 	if resp.Diagnostics.HasError() {
@@ -155,13 +182,23 @@ func (r *fhirResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 		resp.Diagnostics.AddError("Read failed", err.Error())
 		return
 	}
-	// Only overwrite body if it semantically differs from what we have in state,
-	// so server-managed fields and key ordering do not cause perpetual diffs.
-	eq, eqErr := fhirjson.Equal([]byte(m.Body.ValueString()), out)
-	if eqErr == nil && !eq {
+	stateBody := m.Body.ValueString()
+	trimmed := strings.TrimSpace(stateBody)
+	if trimmed == "" || trimmed == "{}" {
+		// Import (or empty) sentinel: adopt the server body as the starting point.
+		m.Body = types.StringValue(string(out))
+	} else if contained, cerr := fhirjson.Contains([]byte(stateBody), out); cerr == nil && !contained {
+		// Genuine drift: the server no longer satisfies the desired config.
+		// Surface the server's actual state so the next plan shows a diff.
 		m.Body = types.StringValue(string(out))
 	}
-	id, ver, upd := extractMeta(out)
+	// Otherwise the server still satisfies the desired config; keep stateBody.
+
+	id, ver, upd, err := extractMeta(out)
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid read response", fmt.Sprintf("could not parse server response: %s", err))
+		return
+	}
 	m.ID = types.StringValue(id)
 	m.VersionID = types.StringValue(ver)
 	m.LastUpdated = types.StringValue(upd)
@@ -169,6 +206,9 @@ func (r *fhirResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 }
 
 func (r *fhirResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	if r.notConfigured(&resp.Diagnostics) {
+		return
+	}
 	var plan, state fhirResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -189,7 +229,11 @@ func (r *fhirResource) Update(ctx context.Context, req resource.UpdateRequest, r
 		resp.Diagnostics.AddError("Update failed", err.Error())
 		return
 	}
-	id, ver, upd := extractMeta(out)
+	id, ver, upd, err := extractMeta(out)
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid update response", fmt.Sprintf("could not parse server response: %s", err))
+		return
+	}
 	plan.ID = types.StringValue(id)
 	plan.VersionID = types.StringValue(ver)
 	plan.LastUpdated = types.StringValue(upd)
@@ -197,6 +241,9 @@ func (r *fhirResource) Update(ctx context.Context, req resource.UpdateRequest, r
 }
 
 func (r *fhirResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	if r.notConfigured(&resp.Diagnostics) {
+		return
+	}
 	var m fhirResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &m)...)
 	if resp.Diagnostics.HasError() {

@@ -67,3 +67,63 @@ func TestEqual_IgnoresServerFields(t *testing.T) {
 		t.Fatal("expected config and server to be semantically equal")
 	}
 }
+
+func TestContains_ServerSupersetIsContained(t *testing.T) {
+	config := []byte(`{"resourceType":"ValueSet","status":"active"}`)
+	server := []byte(`{"resourceType":"ValueSet","status":"active","id":"1","meta":{"project":"p","author":"a","versionId":"3"},"text":{"status":"generated"}}`)
+	ok, err := Contains(config, server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected server superset to be contained")
+	}
+}
+
+func TestContains_UserFieldDiffersNotContained(t *testing.T) {
+	config := []byte(`{"resourceType":"ValueSet","status":"active"}`)
+	server := []byte(`{"resourceType":"ValueSet","status":"draft","meta":{"project":"p"}}`)
+	ok, err := Contains(config, server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("expected differing field to not be contained")
+	}
+}
+
+func TestContains_MissingUserFieldNotContained(t *testing.T) {
+	config := []byte(`{"resourceType":"ValueSet","url":"http://x"}`)
+	server := []byte(`{"resourceType":"ValueSet"}`)
+	ok, err := Contains(config, server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("expected missing user field to not be contained")
+	}
+}
+
+func TestContains_ArrayLengthDiffers(t *testing.T) {
+	config := []byte(`{"resourceType":"ValueSet","contact":[{"name":"a"}]}`)
+	server := []byte(`{"resourceType":"ValueSet","contact":[{"name":"a"},{"name":"b"}]}`)
+	ok, err := Contains(config, server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("expected array length mismatch to not be contained")
+	}
+}
+
+func TestContains_NestedObjectContained(t *testing.T) {
+	config := []byte(`{"resourceType":"ValueSet","compose":{"inactive":true}}`)
+	server := []byte(`{"resourceType":"ValueSet","compose":{"inactive":true,"lockedDate":"2026"}}`)
+	ok, err := Contains(config, server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected nested object with extra server field to be contained")
+	}
+}
