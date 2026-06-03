@@ -38,21 +38,27 @@ export MEDPLUM_PASSWORD="medplum_admin"
 export TF_ACC=1
 ```
 
-The provider's `login()` POSTs to `${MEDPLUM_BASE_URL}/auth/login` and reads `accessToken`
-from the response.
+## Login flow (verified against live Medplum in CI)
 
-## Open items to verify on first live CI run (Task 10)
+The seeded super admin's `/auth/login` does **not** return an access token directly. The
+provider's `login()` implements the full native flow:
 
-These could not be validated without booting the image; confirm them when CI first runs:
+1. Generate a PKCE pair (`code_verifier` + S256 `code_challenge`).
+2. `POST /auth/login` `{email, password, codeChallenge, codeChallengeMethod: "S256"}` →
+   `{login, code}` (or `{login, memberships}`, handled via `POST /auth/profile`).
+3. `POST /oauth2/token` (form) `grant_type=authorization_code&code=<code>&code_verifier=<verifier>`
+   → `{access_token}`.
 
-1. **`/auth/login` response shape.** Confirm Medplum returns a usable `accessToken`
-   directly for the seeded super admin. If it instead returns a `login`/`code` requiring a
-   project-selection / token-exchange step (`/auth/profile`, `/oauth2/token`), the
-   provider's `login()` will need that second step, or CI should instead create a
-   `ClientApplication` and use client-credentials.
-2. **JWT signing / other required config.** Verify the server boots and issues tokens with
-   only the env vars in `docker-compose.test.yml` (e.g. whether a signing key must be
-   provided rather than auto-generated).
-3. **Numeric env coercion** (`MEDPLUM_DATABASE_PORT`, `MEDPLUM_PORT`) is handled by the
-   loader.
-4. Update this file with the verified, exact steps once the first CI run is green.
+PKCE is **required**: a clientless authorization_code exchange without a `code_challenge` is
+rejected with `invalid_request: "Missing verification context"` (server `oauth/token.ts`).
+
+## Resolved follow-ups (first green CI run, 2026-06-03)
+
+1. **`/auth/login` response shape** — resolved: it's the PKCE login → `/oauth2/token`
+   exchange documented above (not a direct `accessToken`).
+2. **JWT signing / required config** — the server boots and issues tokens with only the env
+   vars in `docker-compose.test.yml`; no explicit signing key needed.
+3. **Numeric env coercion** (`MEDPLUM_DATABASE_PORT`, `MEDPLUM_PORT`) — handled by the loader.
+4. **Rate limiting** — Medplum throttles `/auth/login` to 5/min (`defaultLoginRateLimit`); the
+   acceptance suite's many terraform subprocess logins tripped HTTP 429. Disabled in the test
+   instance via `MEDPLUM_DEFAULT_RATE_LIMIT: "-1"` (Medplum's own test-config approach).
