@@ -161,7 +161,9 @@ func Analyze(sdJSON []byte) (Report, error) {
 		}
 
 		// --- Enforced constraints ---
-		if (el.Min != nil && *el.Min > 0) || (el.Max != "" && el.Max != "*") {
+		// A valid extension slice already counted its presence+cardinality above;
+		// don't double-count its min/max here (count once per logical constraint).
+		if !isExtSlice && ((el.Min != nil && *el.Min > 0) || (el.Max != "" && el.Max != "*")) {
 			rep.EnforcedCount++ // cardinality / required presence
 		}
 		// fixed[x]/pattern[x] on a non-url element (url fixed already counted via the extension slice)

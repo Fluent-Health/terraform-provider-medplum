@@ -57,8 +57,8 @@ func TestAnalyze_ExtensionSliceWithFixedURL_Enforced(t *testing.T) {
 	if len(r.Rejects()) != 0 {
 		t.Fatalf("want no rejects, got %+v", r.Findings)
 	}
-	if r.EnforcedCount == 0 {
-		t.Fatal("want extension presence/cardinality counted as enforced")
+	if r.EnforcedCount != 1 {
+		t.Fatalf("want extension slice counted exactly once (presence+cardinality), got %d", r.EnforcedCount)
 	}
 }
 
