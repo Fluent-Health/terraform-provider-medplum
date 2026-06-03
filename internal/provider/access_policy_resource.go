@@ -26,11 +26,11 @@ type accessPolicyModel struct {
 }
 
 type accessPolicyResourceRow struct {
-	ResourceType  types.String `tfsdk:"resource_type"`
-	Criteria      types.String `tfsdk:"criteria"`
-	Readonly      types.Bool   `tfsdk:"readonly"`
-	HiddenFields  []string     `tfsdk:"hidden_fields"`
-	ReadonlyField []string     `tfsdk:"readonly_fields"`
+	ResourceType   types.String `tfsdk:"resource_type"`
+	Criteria       types.String `tfsdk:"criteria"`
+	Readonly       types.Bool   `tfsdk:"readonly"`
+	HiddenFields   types.List   `tfsdk:"hidden_fields"`
+	ReadonlyFields types.List   `tfsdk:"readonly_fields"`
 }
 
 func (r *accessPolicyResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -51,8 +51,8 @@ func (r *accessPolicyResource) Schema(_ context.Context, _ resource.SchemaReques
 						"resource_type":   schema.StringAttribute{Required: true},
 						"criteria":        schema.StringAttribute{Optional: true},
 						"readonly":        schema.BoolAttribute{Optional: true},
-						"hidden_fields":   schema.ListAttribute{Optional: true, ElementType: types.StringType},
-						"readonly_fields": schema.ListAttribute{Optional: true, ElementType: types.StringType},
+						"hidden_fields":   schema.ListAttribute{Optional: true, ElementType: types.StringType, PlanModifiers: []planmodifier.List{emptyListAsNull()}},
+						"readonly_fields": schema.ListAttribute{Optional: true, ElementType: types.StringType, PlanModifiers: []planmodifier.List{emptyListAsNull()}},
 					},
 				},
 			},
@@ -87,11 +87,11 @@ func (m accessPolicyModel) toFHIR(id string) ([]byte, error) {
 		if !row.Readonly.IsNull() && !row.Readonly.IsUnknown() {
 			entry["readonly"] = row.Readonly.ValueBool()
 		}
-		if len(row.HiddenFields) > 0 {
-			entry["hiddenFields"] = row.HiddenFields
+		if hf := listToStrings(row.HiddenFields); len(hf) > 0 {
+			entry["hiddenFields"] = hf
 		}
-		if len(row.ReadonlyField) > 0 {
-			entry["readonlyFields"] = row.ReadonlyField
+		if rf := listToStrings(row.ReadonlyFields); len(rf) > 0 {
+			entry["readonlyFields"] = rf
 		}
 		rows = append(rows, entry)
 	}
@@ -121,10 +121,10 @@ func (m *accessPolicyModel) fromFHIR(body []byte) error {
 	rows := make([]accessPolicyResourceRow, 0, len(doc.Resource))
 	for _, row := range doc.Resource {
 		rr := accessPolicyResourceRow{
-			ResourceType:  types.StringValue(row.ResourceType),
-			Criteria:      optString(row.Criteria),
-			HiddenFields:  row.HiddenFields,
-			ReadonlyField: row.ReadonlyFields,
+			ResourceType:   types.StringValue(row.ResourceType),
+			Criteria:       optString(row.Criteria),
+			HiddenFields:   stringsToList(row.HiddenFields),
+			ReadonlyFields: stringsToList(row.ReadonlyFields),
 		}
 		if row.Readonly != nil {
 			rr.Readonly = types.BoolValue(*row.Readonly)
