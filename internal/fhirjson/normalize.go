@@ -7,6 +7,9 @@ import (
 
 // Canonicalize re-encodes JSON with sorted keys (encoding/json sorts map keys),
 // producing a byte-stable form for comparison.
+//
+// Numbers are decoded as float64; integers larger than 2^53 may lose precision.
+// This is acceptable for FHIR drift comparison but unsuitable for exact numeric audit.
 func Canonicalize(in []byte) ([]byte, error) {
 	var v any
 	if err := json.Unmarshal(in, &v); err != nil {
@@ -29,18 +32,22 @@ func StripServerFields(in []byte) ([]byte, error) {
 		return nil, err
 	}
 	delete(m, "id")
-	if meta, ok := m["meta"].(map[string]any); ok {
+	if m["meta"] == nil {
+		delete(m, "meta")
+	} else if meta, ok := m["meta"].(map[string]any); ok {
 		delete(meta, "versionId")
 		delete(meta, "lastUpdated")
 		if len(meta) == 0 {
 			delete(m, "meta")
 		}
 	}
-	out, err := json.Marshal(m)
-	if err != nil {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(m); err != nil {
 		return nil, err
 	}
-	return Canonicalize(out)
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
 // Equal reports whether two FHIR documents are equal after stripping

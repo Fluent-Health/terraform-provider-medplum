@@ -7,7 +7,10 @@ func TestCanonicalize_KeyOrderStable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := Canonicalize([]byte(`{"a":2,"b":1}`))
+	b, err := Canonicalize([]byte(`{"a":2,"b":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if string(a) != string(b) {
 		t.Fatalf("canonical forms differ: %s vs %s", a, b)
 	}
@@ -27,10 +30,29 @@ func TestStripServerFields(t *testing.T) {
 
 func TestStripServerFields_DropsEmptyMeta(t *testing.T) {
 	in := []byte(`{"resourceType":"ValueSet","id":"1","meta":{"versionId":"5","lastUpdated":"2026"},"status":"active"}`)
-	out, _ := StripServerFields(in)
+	out, err := StripServerFields(in)
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := `{"resourceType":"ValueSet","status":"active"}`
 	if string(out) != want {
 		t.Fatalf("got %s want %s", out, want)
+	}
+}
+
+func TestNormalize_InvalidJSON(t *testing.T) {
+	bad := []byte("{not json")
+
+	if _, err := Canonicalize(bad); err == nil {
+		t.Fatal("Canonicalize: expected error for invalid JSON, got nil")
+	}
+
+	if _, err := StripServerFields(bad); err == nil {
+		t.Fatal("StripServerFields: expected error for invalid JSON, got nil")
+	}
+
+	if _, err := Equal(bad, []byte("{}")); err == nil {
+		t.Fatal("Equal: expected error for invalid JSON, got nil")
 	}
 }
 
