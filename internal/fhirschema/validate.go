@@ -15,13 +15,13 @@ var schemaBytes []byte
 
 // Validator validates FHIR R4 resources against the embedded JSON schema.
 type Validator struct {
-	mu       sync.Mutex
+	mu       sync.RWMutex
 	compiler *jsonschema.Compiler
 	cache    map[string]*jsonschema.Schema
-	defs     map[string]json.RawMessage // resourceType -> presence check
+	known    map[string]struct{} // resourceType -> presence check
 }
 
-const schemaURL = "fhir.schema.json"
+const schemaURL = "file:///fhir.schema.json"
 
 // New compiles the embedded schema and returns a reusable Validator.
 func New() (*Validator, error) {
@@ -42,16 +42,26 @@ func New() (*Validator, error) {
 	if err := json.Unmarshal(schemaBytes, &raw); err != nil {
 		return nil, fmt.Errorf("read definitions: %w", err)
 	}
-	return &Validator{compiler: c, cache: map[string]*jsonschema.Schema{}, defs: raw.Definitions}, nil
+	known := make(map[string]struct{}, len(raw.Definitions))
+	for k := range raw.Definitions {
+		known[k] = struct{}{}
+	}
+	return &Validator{compiler: c, cache: map[string]*jsonschema.Schema{}, known: known}, nil
 }
 
 func (v *Validator) schemaFor(resourceType string) (*jsonschema.Schema, error) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	if s, ok := v.cache[resourceType]; ok {
+	v.mu.RLock()
+	s, ok := v.cache[resourceType]
+	v.mu.RUnlock()
+	if ok {
 		return s, nil
 	}
-	if _, ok := v.defs[resourceType]; !ok {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if s, ok := v.cache[resourceType]; ok { // re-check under write lock
+		return s, nil
+	}
+	if _, ok := v.known[resourceType]; !ok {
 		return nil, fmt.Errorf("unknown FHIR resource type %q", resourceType)
 	}
 	s, err := v.compiler.Compile(schemaURL + "#/definitions/" + resourceType)
