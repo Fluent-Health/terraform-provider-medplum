@@ -1,0 +1,12 @@
+# Binaries
+terraform-provider-medplum
+dist/
+# Go
+*.test
+coverage.out
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraformrc
+terraform.rc

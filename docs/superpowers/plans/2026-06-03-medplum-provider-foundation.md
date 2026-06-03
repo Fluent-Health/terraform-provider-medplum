@@ -369,7 +369,7 @@ func (c Config) tokenURL() string {
 type Client struct {
 	baseURL  string
 	fhirPath string
-	http     *http.Client
+	httpClient *http.Client
 }
 
 // New validates the config and returns a Client whose underlying transport
@@ -378,19 +378,22 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	ts, err := cfg.tokenSource(ctx)
-	if err != nil {
-		return nil, err
-	}
+	// Inject the base HTTP client into ctx BEFORE building the token source:
+	// clientcredentials.TokenSource captures ctx, so the custom client must be
+	// present for token refresh to use it (not just for FHIR requests).
 	base := cfg.HTTPClient
 	if base == nil {
 		base = http.DefaultClient
 	}
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, base)
+	ts, err := cfg.tokenSource(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return &Client{
-		baseURL:  strings.TrimRight(cfg.BaseURL, "/"),
-		fhirPath: cfg.fhirPath(),
-		http:     oauth2.NewClient(ctx, ts),
+		baseURL:    strings.TrimRight(cfg.BaseURL, "/"),
+		fhirPath:   cfg.fhirPath(),
+		httpClient: oauth2.NewClient(ctx, ts),
 	}, nil
 }
 ```
@@ -633,7 +636,7 @@ func (c *Client) do(ctx context.Context, method, url string, body []byte) ([]byt
 	}
 	req.Header.Set("Accept", "application/fhir+json")
 
-	resp, err := c.http.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -1160,6 +1163,14 @@ Run: `go build ./... 2>&1 | head` — Expected: error `undefined: NewFHIRResourc
 
 ## Task 7: `medplum_fhir_resource` with plan-time validation, CRUD, drift, import
 
+> **Drift model updated during implementation (commit `010e902`).** Code review found that
+> Medplum stamps `meta.project`/`author`/`compartment` onto every resource, which the
+> `StripServerFields`+`Equal` approach below would treat as perpetual drift. The committed
+> implementation instead uses a **subset/containment** model: `fhirjson.Contains(config, server)`
+> ignores server-only fields, `Read` keeps the user's `body` unless the server no longer satisfies
+> it (genuine drift), and a `semanticJSONBody()` plan modifier suppresses cosmetic diffs. The
+> CRUD/validation/import structure below is otherwise as implemented.
+
 **Files:**
 - Create: `internal/provider/fhir_resource.go`
 - Modify: commit alongside Task 6.
@@ -1446,6 +1457,7 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
 func testAccPreCheck(t *testing.T) {
@@ -1506,7 +1518,7 @@ resource "medplum_fhir_resource" "test" {
 }
 
 func importIDFunc(name string) resource.ImportStateIdFunc {
-	return func(s *resource.State) (string, error) {
+	return func(s *terraform.State) (string, error) {
 		rs, ok := s.RootModule().Resources[name]
 		if !ok {
 			return "", fmt.Errorf("resource %s not found", name)
