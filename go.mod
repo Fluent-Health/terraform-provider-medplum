@@ -1,13 +1,13 @@
 module github.com/Fluent-Health/terraform-provider-medplum
 
-go 1.22.0
+go 1.25.0
 
 require (
 	github.com/hashicorp/terraform-plugin-framework v1.13.0
 	github.com/hashicorp/terraform-plugin-go v0.25.0
 	github.com/hashicorp/terraform-plugin-testing v1.10.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
-	golang.org/x/oauth2 v0.22.0
+	golang.org/x/oauth2 v0.36.0
 )
 
 require (
