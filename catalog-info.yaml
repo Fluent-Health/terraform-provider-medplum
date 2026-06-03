@@ -1,0 +1,17 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: terraform-provider-medplum
+  description: Terraform provider for managing Medplum FHIR resources, access policies, projects, and client applications.
+  annotations:
+    github.com/project-slug: Fluent-Health/terraform-provider-medplum
+    backstage.io/source-location: url:https://github.com/Fluent-Health/terraform-provider-medplum/tree/main/
+    fluentinhealth.com/oss: pending
+  tags:
+    - terraform
+    - medplum
+    - opensource
+spec:
+  type: library
+  lifecycle: production
+  owner: group:default/devops

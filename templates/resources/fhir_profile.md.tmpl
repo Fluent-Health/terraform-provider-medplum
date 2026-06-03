@@ -1,0 +1,28 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.RenderedProviderName}}"
+subcategory: "FHIR Data"
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+{{ .Description | trimspace }}
+
+At plan time the provider analyses the StructureDefinition against the Medplum profile-enforcement matrix for the configured `medplum_version` and emits warnings for constructs Medplum does not enforce (e.g. `mustSupport`, `targetProfile`, constraint FHIRPath expressions). Set `strict = true` to turn those warnings into errors. The snapshot must be non-empty.
+
+{{ if .HasExample -}}
+## Example Usage
+
+{{tffile .ExampleFile }}
+{{- end }}
+
+{{ .SchemaMarkdown | trimspace }}
+
+{{ if .HasImport -}}
+## Import
+
+Import is supported using the following syntax:
+
+{{codefile "shell" .ImportFile}}
+{{- end }}

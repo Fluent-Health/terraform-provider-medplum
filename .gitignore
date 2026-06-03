@@ -10,3 +10,5 @@ coverage.out
 *.tfstate.*
 .terraformrc
 terraform.rc
+# Internal planning docs (not shipped OSS)
+docs/superpowers/

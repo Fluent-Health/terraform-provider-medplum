@@ -2,8 +2,6 @@ module github.com/Fluent-Health/terraform-provider-medplum
 
 go 1.22.0
 
-toolchain go1.22.2
-
 require (
 	github.com/hashicorp/terraform-plugin-framework v1.13.0
 	github.com/hashicorp/terraform-plugin-go v0.25.0
