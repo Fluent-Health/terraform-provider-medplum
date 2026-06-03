@@ -1,0 +1,10 @@
+id: fluent.medplum.test
+canonical: http://example.com/fhir
+name: FluentMedplumTest
+title: Fluent Medplum Test IG
+publisher: Fluent Health
+status: active
+version: 0.1.0
+fhirVersion: 4.0.1
+FSHOnly: false
+releaseLabel: ci
