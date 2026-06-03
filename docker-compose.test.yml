@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: medplum
+      POSTGRES_PASSWORD: medplum
+      POSTGRES_DB: medplum
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medplum"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  redis:
+    image: redis:7
+    command: ["redis-server", "--requirepass", "medplum"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "medplum", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  medplum:
+    image: medplum/medplum-server:5.1.14
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8103:8103"
+    environment:
+      MEDPLUM_DATABASE_HOST: postgres
+      MEDPLUM_DATABASE_PORT: "5432"
+      MEDPLUM_DATABASE_DBNAME: medplum
+      MEDPLUM_DATABASE_USERNAME: medplum
+      MEDPLUM_DATABASE_PASSWORD: medplum
+      MEDPLUM_REDIS_HOST: redis
+      MEDPLUM_REDIS_PORT: "6379"
+      MEDPLUM_REDIS_PASSWORD: medplum
+      MEDPLUM_BASE_URL: "http://localhost:8103/"
+      MEDPLUM_PORT: "8103"
