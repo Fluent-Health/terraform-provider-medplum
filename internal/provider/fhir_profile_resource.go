@@ -169,7 +169,22 @@ func (r *fhirProfileResource) Read(ctx context.Context, req resource.ReadRequest
 	if trimmed == "" || trimmed == "{}" {
 		m.StructureDefinition = types.StringValue(string(out))
 	} else {
-		contained, cerr := fhirjson.Contains([]byte(stateBody), out)
+		// Medplum reassigns the StructureDefinition's logical `id` to a server
+		// UUID on create and injects a server-managed `meta` block. Strip those
+		// from both sides before the subset-containment check so a config whose
+		// `id` Medplum overrides does not register as perpetual drift; only the
+		// substantive constraints are compared.
+		cfgClean, cerr := fhirjson.StripServerFields([]byte(stateBody))
+		if cerr != nil {
+			resp.Diagnostics.AddError("Drift comparison failed", cerr.Error())
+			return
+		}
+		srvClean, serr := fhirjson.StripServerFields(out)
+		if serr != nil {
+			resp.Diagnostics.AddError("Drift comparison failed", serr.Error())
+			return
+		}
+		contained, cerr := fhirjson.Contains(cfgClean, srvClean)
 		if cerr != nil {
 			resp.Diagnostics.AddError("Drift comparison failed", cerr.Error())
 			return
