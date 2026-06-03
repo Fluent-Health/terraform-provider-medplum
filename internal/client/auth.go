@@ -1,9 +1,11 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -37,9 +39,12 @@ func (c Config) tokenSource(ctx context.Context) (oauth2.TokenSource, error) {
 
 // login performs Medplum email+password login and returns the access token.
 func (c Config) login(ctx context.Context) (*oauth2.Token, error) {
-	body, _ := json.Marshal(map[string]string{"email": c.Email, "password": c.Password})
+	body, err := json.Marshal(map[string]string{"email": c.Email, "password": c.Password})
+	if err != nil {
+		return nil, err
+	}
 	url := strings.TrimRight(c.BaseURL, "/") + "/auth/login"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(body)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +59,8 @@ func (c Config) login(ctx context.Context) (*oauth2.Token, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("login failed: HTTP %d", resp.StatusCode)
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("login failed: HTTP %d: %s", resp.StatusCode, snippet)
 	}
 	var out struct {
 		AccessToken string `json:"accessToken"`
