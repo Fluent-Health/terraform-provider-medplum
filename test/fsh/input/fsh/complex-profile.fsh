@@ -5,12 +5,20 @@
 //   1. active 1..1         — required cardinality (min=1)
 //   2. active = true       — fixed value on active
 //   3. gender 1..1 MS      — required cardinality on gender (MS is decorative)
-//   4. FluentTag extension 1..1 — required extension by URL
-//   5. identifier:mrn 1..1 — per-slice cardinality (value discriminator on system)
+//   4. identifier:mrn 1..1 — per-slice cardinality (value discriminator on system)
 //
 // DECORATIVE constraints (Medplum does not enforce at runtime):
-//   6. name MS             — mustSupport flag on name
-//   7. birthDate MS        — mustSupport flag on birthDate
+//   5. name MS             — mustSupport flag on name
+//   6. birthDate MS        — mustSupport flag on birthDate
+//
+// NOTE: we deliberately do NOT add an `* extension contains ...` slice here.
+// SUSHI/IG-Publisher generate an extension slice typed only via `type.profile`
+// (a canonical reference), with NO inline fixed `url` child element. Medplum
+// matches extension slices by `slice.elements['url'].fixed`, so such a slice
+// never matches and the constraint is silently inert — which the provider's
+// profile validator correctly REJECTS at plan time. Keeping it out lets this
+// fixture exercise the happy path (a profile Medplum genuinely enforces); the
+// validator's rejection of the inert extension form is covered by unit tests.
 
 Profile: FluentPatient
 Parent: Patient
@@ -26,9 +34,6 @@ Description: "A complex Patient profile used to test the FSH → SD → Terrafor
 
 // ── ENFORCED + DECORATIVE: required gender (MS is decorative) ────────────
 * gender 1..1 MS
-
-// ── ENFORCED: required extension by URL ──────────────────────────────────
-* extension contains FluentTag named fluentTag 1..1
 
 // ── ENFORCED: value-discriminated slice on identifier.system ─────────────
 * identifier ^slicing.discriminator[0].type = #value
