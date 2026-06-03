@@ -7,10 +7,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Fluent-Health/terraform-provider-medplum/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+
+	"github.com/Fluent-Health/terraform-provider-medplum/internal/client"
 )
 
 var discoveredProjectID string

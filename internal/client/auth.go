@@ -89,7 +89,7 @@ func (c Config) postJSON(ctx context.Context, rawURL string, payload any, dst an
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return fmt.Errorf("POST %s failed: HTTP %d: %s", rawURL, resp.StatusCode, snippet)
@@ -174,7 +174,7 @@ func (c Config) login(ctx context.Context) (*oauth2.Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return nil, fmt.Errorf("token exchange failed: HTTP %d: %s", resp.StatusCode, snippet)
