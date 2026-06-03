@@ -62,6 +62,11 @@ func (r *clientApplicationResource) Configure(_ context.Context, req resource.Co
 	r.data = d
 }
 
+// generateClientSecret mints a client secret provider-side. NOTE: Medplum's
+// $rotate-secret operation cannot mint an INITIAL secret (it requires the
+// current secret to match), and we deliberately avoid the admin /client
+// endpoint (it would create a hidden ProjectMembership). So the provider
+// generates the secret and sets it on the FHIR resource at create time.
 func generateClientSecret() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {

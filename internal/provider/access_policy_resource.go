@@ -178,7 +178,14 @@ func (m *accessPolicyModel) fromFHIR(body []byte) error {
 		}
 		rows = append(rows, rr)
 	}
-	m.Resource = rows
+	// Use a nil slice (not an empty one) when the server returns no rows, so a
+	// zero-block config round-trips to null (matches ip_access_rule below and
+	// avoids an "inconsistent result" diff for a degenerate empty policy).
+	if len(rows) == 0 {
+		m.Resource = nil
+	} else {
+		m.Resource = rows
+	}
 	if len(doc.IPAccessRule) > 0 {
 		ipRules := make([]accessPolicyIPRule, 0, len(doc.IPAccessRule))
 		for _, rule := range doc.IPAccessRule {
