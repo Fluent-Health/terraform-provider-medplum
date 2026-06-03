@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
@@ -31,14 +32,25 @@ func (c Config) tokenSource(ctx context.Context) (oauth2.TokenSource, error) {
 		}
 		return cc.TokenSource(ctx), nil
 	case c.hasLogin():
-		tok, err := c.login(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return oauth2.StaticTokenSource(tok), nil
+		return oauth2.ReuseTokenSource(nil, &loginTokenSource{cfg: c}), nil
 	default:
 		return nil, fmt.Errorf("no auth method configured")
 	}
+}
+
+// loginTokenSource performs Medplum email+password login (with PKCE + token
+// exchange) on demand. Wrapped in oauth2.ReuseTokenSource, it re-logs in when
+// the previous token expires.
+//
+// Token() intentionally uses context.Background rather than the context that
+// was active at Configure time: the Configure-time context is cancelled by
+// Terraform before any CRUD operations run, so passing it to a lazy token
+// fetch would cause every HTTP call to fail with "context canceled". Token
+// fetches must outlive the request that triggered them.
+type loginTokenSource struct{ cfg Config }
+
+func (s *loginTokenSource) Token() (*oauth2.Token, error) {
+	return s.cfg.login(context.Background())
 }
 
 // loginResponse is the shape returned by /auth/login and /auth/profile.
@@ -169,6 +181,7 @@ func (c Config) login(ctx context.Context) (*oauth2.Token, error) {
 	}
 	var tokenResp struct {
 		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
 		return nil, err
@@ -176,5 +189,9 @@ func (c Config) login(ctx context.Context) (*oauth2.Token, error) {
 	if tokenResp.AccessToken == "" {
 		return nil, fmt.Errorf("token exchange response missing access_token")
 	}
-	return &oauth2.Token{AccessToken: tokenResp.AccessToken, TokenType: "Bearer"}, nil
+	tok := &oauth2.Token{AccessToken: tokenResp.AccessToken, TokenType: "Bearer"}
+	if tokenResp.ExpiresIn > 0 {
+		tok.Expiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+	}
+	return tok, nil
 }
