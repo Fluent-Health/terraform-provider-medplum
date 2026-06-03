@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"golang.org/x/oauth2"
@@ -37,39 +38,128 @@ func (c Config) tokenSource(ctx context.Context) (oauth2.TokenSource, error) {
 	}
 }
 
-// login performs Medplum email+password login and returns the access token.
-func (c Config) login(ctx context.Context) (*oauth2.Token, error) {
-	body, err := json.Marshal(map[string]string{"email": c.Email, "password": c.Password})
-	if err != nil {
-		return nil, err
+// loginResponse is the shape returned by /auth/login and /auth/profile.
+type loginResponse struct {
+	Login             string `json:"login"`
+	Code              string `json:"code"`
+	AccessToken       string `json:"accessToken"`
+	MFARequired       bool   `json:"mfaRequired"`
+	MFAEnrollRequired bool   `json:"mfaEnrollRequired"`
+	Memberships       []struct {
+		ID string `json:"id"`
+	} `json:"memberships"`
+}
+
+// httpClient returns the configured HTTP client or the default.
+func (c Config) httpClient() *http.Client {
+	if c.HTTPClient != nil {
+		return c.HTTPClient
 	}
-	url := strings.TrimRight(c.BaseURL, "/") + "/auth/login"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	return http.DefaultClient
+}
+
+// postJSON POSTs a JSON-encoded body to url and decodes the JSON response into dst.
+// It returns an error on non-200 status (including up to 512 bytes of body).
+func (c Config) postJSON(ctx context.Context, rawURL string, payload any, dst any) error {
+	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, err
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, bytes.NewReader(body))
+	if err != nil {
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	hc := c.HTTPClient
-	if hc == nil {
-		hc = http.DefaultClient
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return err
 	}
-	resp, err := hc.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("POST %s failed: HTTP %d: %s", rawURL, resp.StatusCode, snippet)
+	}
+	return json.NewDecoder(resp.Body).Decode(dst)
+}
+
+// login performs Medplum email+password login and returns the access token.
+// It implements the full Medplum login flow:
+//  1. POST /auth/login → may return accessToken (fast path), code, or memberships.
+//  2. If memberships are present, POST /auth/profile to select the first one and get a code.
+//  3. Exchange the code at /oauth2/token for an access token.
+func (c Config) login(ctx context.Context) (*oauth2.Token, error) {
+	base := strings.TrimRight(c.BaseURL, "/")
+
+	// Step 1: POST /auth/login
+	var loginResp loginResponse
+	if err := c.postJSON(ctx, base+"/auth/login", map[string]string{
+		"email":    c.Email,
+		"password": c.Password,
+	}, &loginResp); err != nil {
+		return nil, fmt.Errorf("login failed: %w", err)
+	}
+
+	// Step 3 (fast path): older Medplum versions return accessToken directly.
+	if loginResp.AccessToken != "" {
+		return &oauth2.Token{AccessToken: loginResp.AccessToken, TokenType: "Bearer"}, nil
+	}
+
+	// MFA is not supported for automated/provider login.
+	if loginResp.MFARequired || loginResp.MFAEnrollRequired {
+		return nil, fmt.Errorf("MFA-enabled accounts are not supported for automated login")
+	}
+
+	// Step 2: determine the auth code.
+	code := loginResp.Code
+	if code == "" {
+		if len(loginResp.Memberships) == 0 {
+			return nil, fmt.Errorf("login did not return an authorization code or memberships")
+		}
+		// Select the first membership to obtain a code.
+		var profileResp loginResponse
+		if err := c.postJSON(ctx, base+"/auth/profile", map[string]string{
+			"login":   loginResp.Login,
+			"profile": loginResp.Memberships[0].ID,
+		}, &profileResp); err != nil {
+			return nil, fmt.Errorf("profile selection failed: %w", err)
+		}
+		if profileResp.MFARequired || profileResp.MFAEnrollRequired {
+			return nil, fmt.Errorf("MFA-enabled accounts are not supported for automated login")
+		}
+		if profileResp.Code == "" {
+			return nil, fmt.Errorf("profile selection did not return an authorization code")
+		}
+		code = profileResp.Code
+	}
+
+	// Step 3: exchange the code for an access token at /oauth2/token.
+	tokenURL := base + "/oauth2/token"
+	formData := url.Values{
+		"grant_type": {"authorization_code"},
+		"code":       {code},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(formData.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("login failed: HTTP %d: %s", resp.StatusCode, snippet)
+		return nil, fmt.Errorf("token exchange failed: HTTP %d: %s", resp.StatusCode, snippet)
 	}
-	var out struct {
-		AccessToken string `json:"accessToken"`
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
 		return nil, err
 	}
-	if out.AccessToken == "" {
-		return nil, fmt.Errorf("login response missing accessToken")
+	if tokenResp.AccessToken == "" {
+		return nil, fmt.Errorf("token exchange response missing access_token")
 	}
-	return &oauth2.Token{AccessToken: out.AccessToken, TokenType: "Bearer"}, nil
+	return &oauth2.Token{AccessToken: tokenResp.AccessToken, TokenType: "Bearer"}, nil
 }

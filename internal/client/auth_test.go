@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -70,6 +71,112 @@ func TestTokenSource_Login(t *testing.T) {
 	}
 	if tok.AccessToken != "login-tok" {
 		t.Fatalf("got token %q", tok.AccessToken)
+	}
+}
+
+func TestLogin_CodeExchange(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{"login": "L1", "code": "C1"})
+		case "/oauth2/token":
+			_ = r.ParseForm()
+			if got := r.Form.Get("grant_type"); got != "authorization_code" {
+				http.Error(w, fmt.Sprintf("bad grant_type: %q", got), http.StatusBadRequest)
+				return
+			}
+			if got := r.Form.Get("code"); got != "C1" {
+				http.Error(w, fmt.Sprintf("bad code: %q", got), http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "final-tok"})
+		default:
+			http.Error(w, "not found", http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	cfg := Config{BaseURL: srv.URL, Email: "a@b.com", Password: "pw"}
+	ts, err := cfg.tokenSource(context.Background())
+	if err != nil {
+		t.Fatalf("tokenSource: %v", err)
+	}
+	tok, err := ts.Token()
+	if err != nil {
+		t.Fatalf("Token: %v", err)
+	}
+	if tok.AccessToken != "final-tok" {
+		t.Fatalf("got token %q, want %q", tok.AccessToken, "final-tok")
+	}
+}
+
+func TestLogin_ProfileSelection(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"login":       "L1",
+				"memberships": []map[string]any{{"id": "M1"}},
+			})
+		case "/auth/profile":
+			var body map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["login"] != "L1" {
+				http.Error(w, fmt.Sprintf("bad login: %q", body["login"]), http.StatusBadRequest)
+				return
+			}
+			if body["profile"] != "M1" {
+				http.Error(w, fmt.Sprintf("bad profile: %q", body["profile"]), http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"login": "L1", "code": "C2"})
+		case "/oauth2/token":
+			_ = r.ParseForm()
+			if got := r.Form.Get("code"); got != "C2" {
+				http.Error(w, fmt.Sprintf("bad code: %q", got), http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "tok2"})
+		default:
+			http.Error(w, "not found", http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	cfg := Config{BaseURL: srv.URL, Email: "a@b.com", Password: "pw"}
+	ts, err := cfg.tokenSource(context.Background())
+	if err != nil {
+		t.Fatalf("tokenSource: %v", err)
+	}
+	tok, err := ts.Token()
+	if err != nil {
+		t.Fatalf("Token: %v", err)
+	}
+	if tok.AccessToken != "tok2" {
+		t.Fatalf("got token %q, want %q", tok.AccessToken, "tok2")
+	}
+}
+
+func TestLogin_MFA_Unsupported(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/auth/login" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"login": "L1", "mfaRequired": true})
+			return
+		}
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	cfg := Config{BaseURL: srv.URL, Email: "a@b.com", Password: "pw"}
+	_, err := cfg.tokenSource(context.Background())
+	if err == nil {
+		t.Fatal("expected error for MFA account, got nil")
+	}
+	if !strings.Contains(err.Error(), "MFA") {
+		t.Fatalf("error does not mention MFA: %v", err)
 	}
 }
 
