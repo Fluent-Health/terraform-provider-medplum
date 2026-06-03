@@ -1457,6 +1457,7 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
 func testAccPreCheck(t *testing.T) {
@@ -1517,7 +1518,7 @@ resource "medplum_fhir_resource" "test" {
 }
 
 func importIDFunc(name string) resource.ImportStateIdFunc {
-	return func(s *resource.State) (string, error) {
+	return func(s *terraform.State) (string, error) {
 		rs, ok := s.RootModule().Resources[name]
 		if !ok {
 			return "", fmt.Errorf("resource %s not found", name)
