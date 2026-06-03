@@ -174,6 +174,7 @@ resource "medplum_client_application" "idp" {
     token_url      = "https://idp.example.com/oauth2/token"
     user_info_url  = "https://idp.example.com/oauth2/userinfo"
     client_id      = "ext-client-id-%s"
+    client_secret  = "ext-client-secret"
     use_subject    = true
   }
 }`, suffix, suffix)
