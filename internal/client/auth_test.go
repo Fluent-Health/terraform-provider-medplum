@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTokenSource_ClientCredentials(t *testing.T) {
@@ -227,7 +228,11 @@ func TestLogin_MFA_Unsupported(t *testing.T) {
 	defer srv.Close()
 
 	cfg := Config{BaseURL: srv.URL, Email: "a@b.com", Password: "pw"}
-	_, err := cfg.tokenSource(context.Background())
+	ts, err := cfg.tokenSource(context.Background())
+	if err != nil {
+		t.Fatalf("tokenSource: %v", err)
+	}
+	_, err = ts.Token()
 	if err == nil {
 		t.Fatal("expected error for MFA account, got nil")
 	}
@@ -245,6 +250,45 @@ func TestConfig_Validate_ExactlyOneMethod(t *testing.T) {
 	}
 	if err := (Config{BaseURL: "x", AccessToken: "t"}).Validate(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLogin_RefreshesAfterExpiry(t *testing.T) {
+	var loginCount int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/auth/login":
+			loginCount++
+			_ = json.NewEncoder(w).Encode(map[string]any{"login": "L1", "code": "C1"})
+		case "/oauth2/token":
+			// expires_in=1 second so the token expires almost immediately
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": fmt.Sprintf("tok-%d", loginCount), "expires_in": 1})
+		default:
+			http.Error(w, "not found", http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	cfg := Config{BaseURL: srv.URL, Email: "a@b.com", Password: "pw"}
+	ts, err := cfg.tokenSource(context.Background())
+	if err != nil {
+		t.Fatalf("tokenSource: %v", err)
+	}
+	t1, err := ts.Token()
+	if err != nil {
+		t.Fatalf("first token: %v", err)
+	}
+	// Force expiry and request again — should re-login.
+	time.Sleep(1500 * time.Millisecond)
+	t2, err := ts.Token()
+	if err != nil {
+		t.Fatalf("second token: %v", err)
+	}
+	if loginCount < 2 {
+		t.Fatalf("expected re-login after expiry, loginCount=%d", loginCount)
+	}
+	if t1.AccessToken == t2.AccessToken {
+		t.Fatalf("expected a refreshed token, got same %q", t1.AccessToken)
 	}
 }
 
