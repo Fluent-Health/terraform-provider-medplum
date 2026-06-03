@@ -5,44 +5,54 @@
 The `docker-compose.test.yml` stack starts a self-contained Medplum server (image
 `medplum/medplum-server:5.1.14`) backed by Postgres 16 and Redis 7.
 
-Acceptance tests (`TF_ACC=1`) authenticate against this server using a super-admin
-account. This note documents the mechanism for obtaining credentials and flags an
-open follow-up for CI.
+The server `ENTRYPOINT` is `node ... packages/server/dist/index.js`; the config source
+is passed as the `command:` argument. We use **`env`**, which makes the server read its
+configuration from `MEDPLUM_*` environment variables (see `src/config/loader.ts`, the
+`case 'env'` branch; without an argument the server defaults to
+`file:medplum.config.json` and fails to boot).
 
-## Default admin credentials (dev image)
+## Default admin credentials (confirmed against v5.1.14 source)
 
-On first boot, the Medplum dev/server image auto-initialises a default project and a
-super-admin user. The documented defaults for the dev image are:
+On startup the server calls `seedDatabase(config)` (`src/app.ts`), which — if the database
+is not already seeded — creates the first project and a super-admin user
+(`src/seed.ts`):
 
-| Field    | Value             |
-|----------|-------------------|
-| Email    | `admin@example.com` |
-| Password | `medplum_admin`   |
+| Field    | Value               | Override (env)                         |
+|----------|---------------------|----------------------------------------|
+| Email    | `admin@example.com` | `MEDPLUM_DEFAULTSUPERADMINEMAIL`       |
+| Password | `medplum_admin`     | `MEDPLUM_DEFAULTSUPERADMINPASSWORD`    |
 
-These are surfaced in the container startup logs and are consistent with the Medplum
-open-source development environment documentation.
+Seeding also rebuilds R4 StructureDefinitions, SearchParameters, and ValueSets, so the
+**first boot is slow** (the healthcheck `start_period` and `wait-for-medplum.sh` timeout
+account for this).
 
-## How CI obtains credentials
+## How CI authenticates
 
-1. Start the stack: `docker compose -f docker-compose.test.yml up -d`
-2. Wait for the server: `./scripts/wait-for-medplum.sh`
-3. Set environment variables for the acceptance tests:
-   ```bash
-   export MEDPLUM_SERVER_URL="http://localhost:8103/"
-   export MEDPLUM_CLIENT_ID="<client-id>"
-   export MEDPLUM_CLIENT_SECRET="<client-secret>"
-   ```
-   A client application must be created (or already exists) in the default project.
-   The super-admin credentials above can be used to authenticate and retrieve or
-   create a client app via the Medplum REST API before running tests.
+The Terraform provider's super-admin login mode is the simplest path for CI (no
+pre-existing client app needed). The acceptance job sets:
 
-## Follow-up (acceptance-test task)
+```bash
+export MEDPLUM_BASE_URL="http://localhost:8103"
+export MEDPLUM_EMAIL="admin@example.com"
+export MEDPLUM_PASSWORD="medplum_admin"
+export TF_ACC=1
+```
 
-> **TODO:** Confirm the exact default-admin mechanism for pinned image
-> `medplum/medplum-server:5.1.14`. Specifically:
-> - Verify that `admin@example.com` / `medplum_admin` are valid on first boot.
-> - Determine whether `MEDPLUM_ADMIN_*` environment variables override these defaults.
-> - Document the exact API call to exchange admin credentials for a client app
->   `clientId`/`clientSecret` suitable for the Terraform provider's OAuth2 client
->   credentials flow.
-> - Update this file with the verified steps once confirmed.
+The provider's `login()` POSTs to `${MEDPLUM_BASE_URL}/auth/login` and reads `accessToken`
+from the response.
+
+## Open items to verify on first live CI run (Task 10)
+
+These could not be validated without booting the image; confirm them when CI first runs:
+
+1. **`/auth/login` response shape.** Confirm Medplum returns a usable `accessToken`
+   directly for the seeded super admin. If it instead returns a `login`/`code` requiring a
+   project-selection / token-exchange step (`/auth/profile`, `/oauth2/token`), the
+   provider's `login()` will need that second step, or CI should instead create a
+   `ClientApplication` and use client-credentials.
+2. **JWT signing / other required config.** Verify the server boots and issues tokens with
+   only the env vars in `docker-compose.test.yml` (e.g. whether a signing key must be
+   provided rather than auto-generated).
+3. **Numeric env coercion** (`MEDPLUM_DATABASE_PORT`, `MEDPLUM_PORT`) is handled by the
+   loader.
+4. Update this file with the verified, exact steps once the first CI run is green.

@@ -14,12 +14,17 @@ services:
     image: redis:7
     command: ["redis-server", "--requirepass", "medplum"]
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "medplum", "ping"]
+      test: ["CMD", "redis-cli", "-a", "medplum", "--no-auth-warning", "ping"]
       interval: 5s
       timeout: 5s
       retries: 20
   medplum:
     image: medplum/medplum-server:5.1.14
+    # The server ENTRYPOINT is `node ... index.js`; the config source must be passed
+    # as an argument. "env" tells Medplum to read config from MEDPLUM_* env vars
+    # (server src/config/loader.ts). Without it the server defaults to
+    # file:medplum.config.json and fails to boot.
+    command: ["env"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -27,6 +32,12 @@ services:
         condition: service_healthy
     ports:
       - "8103:8103"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:8103/healthcheck',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
     environment:
       MEDPLUM_DATABASE_HOST: postgres
       MEDPLUM_DATABASE_PORT: "5432"
