@@ -73,6 +73,25 @@ All 10 issue-#1 claims **CONFIRMED**, with refinements. Files: `core/src/typesch
   supported FHIRPath feature set was not traced; treat custom `constraint.expression` as **WARN**
   until separately verified (a Plan 3 sub-task).
 
+## 5.0.10 verification
+
+**Conclusion: the profile-validation matrix is identical across Medplum 5.0.10 and 5.1.14.**
+
+The `@medplum/core` diff between the two releases was audited and contains only:
+
+- TypeScript type-cast cleanups (no runtime behavior change).
+- `?? EMPTY` / null-coalescing refactors that are behavior-preserving in all FHIR-valid inputs.
+- A new base64 primitive check (`base64Binary` format validation) that is orthogonal to the SD classification rules.
+- A backbone-inner-type resolution tweak that stays **WARN** in both versions (resolved type not further validated in the SD path).
+
+No classification rule changed: none of the REJECT/WARN/ENFORCED entries in the matrix above moved
+category between 5.0.10 and 5.1.14. The FHIRPath `constraint.expression` feature set remains
+untraced (WARN) in both versions.
+
+**Implication:** a single shared matrix is correct. The `version` argument to `AnalyzeForVersion`
+only gates an unknown-version WARN (to signal re-verification on upgrade); no version-branched rule
+is needed.
+
 ## Recommendations for the Plan 3 spec
 
 1. **Drift:** reuse `fhirjson.Contains`; no SD-specific equivalence code. Phase 1 = a thin

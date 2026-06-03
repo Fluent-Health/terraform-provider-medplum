@@ -3,7 +3,7 @@
 ## Overview
 
 The `docker-compose.test.yml` stack starts a self-contained Medplum server (image
-`medplum/medplum-server:5.1.14`) backed by Postgres 16 and Redis 7.
+`medplum/medplum-server:5.0.10` — pinned to the deployed version) backed by Postgres 16 and Redis 7.
 
 The server `ENTRYPOINT` is `node ... packages/server/dist/index.js`; the config source
 is passed as the `command:` argument. We use **`env`**, which makes the server read its
@@ -11,7 +11,12 @@ configuration from `MEDPLUM_*` environment variables (see `src/config/loader.ts`
 `case 'env'` branch; without an argument the server defaults to
 `file:medplum.config.json` and fails to boot).
 
-## Default admin credentials (confirmed against v5.1.14 source)
+The pinned version is **5.0.10** (the deployed version). The first 5.0.10 CI run
+re-confirms that auth/PKCE, rate-limit bypass (`MEDPLUM_DEFAULT_RATE_LIMIT: "-1"`),
+`$init` seeding, and StructureDefinition (`sdf`) CRUD behaviors are unchanged from
+5.1.14 (consistent with the Phase 2 profile-validation matrix verification).
+
+## Default admin credentials (confirmed against v5.0.10 source)
 
 On startup the server calls `seedDatabase(config)` (`src/app.ts`), which — if the database
 is not already seeded — creates the first project and a super-admin user

@@ -1,6 +1,9 @@
 package fhirprofile
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // helper: an SD with the given snapshot elements (as a raw JSON array string).
 func sdWith(elementsJSON string) []byte {
@@ -103,5 +106,45 @@ func TestAnalyze_DecorativeOnly_NoEnforced(t *testing.T) {
 func TestAnalyze_InvalidJSON(t *testing.T) {
 	if _, err := Analyze([]byte(`{bad`)); err == nil {
 		t.Fatal("want error on invalid json")
+	}
+}
+
+func TestAnalyzeForVersion_Selects(t *testing.T) {
+	// A known version ("5.0.10") should produce the same EnforcedCount as Analyze.
+	sd := sdWith(`[
+	  {"id":"Patient","path":"Patient"},
+	  {"id":"Patient.active","path":"Patient.active","min":1,"max":"1"}
+	]`)
+	want, err := Analyze(sd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := AnalyzeForVersion(sd, "5.0.10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.EnforcedCount != want.EnforcedCount {
+		t.Fatalf("EnforcedCount: want %d, got %d", want.EnforcedCount, got.EnforcedCount)
+	}
+	// No extra warns from the version gate.
+	if len(got.Warns()) != len(want.Warns()) {
+		t.Fatalf("Warns: want %d, got %d (%+v)", len(want.Warns()), len(got.Warns()), got.Findings)
+	}
+}
+
+func TestAnalyzeForVersion_UnknownWarns(t *testing.T) {
+	sd := sdWith(`[{"id":"Patient","path":"Patient"}]`)
+	r, err := AnalyzeForVersion(sd, "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, w := range r.Warns() {
+		if strings.Contains(w.Message, "unrecognized Medplum version") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want a WARN containing 'unrecognized Medplum version', got %+v", r.Findings)
 	}
 }

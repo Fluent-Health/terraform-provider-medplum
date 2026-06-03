@@ -16,8 +16,9 @@ import (
 
 // providerData is passed to resources via Configure.
 type providerData struct {
-	Client    *client.Client
-	Validator *fhirschema.Validator
+	Client         *client.Client
+	Validator      *fhirschema.Validator
+	MedplumVersion string
 }
 
 func New(version string) func() provider.Provider {
@@ -29,14 +30,15 @@ type medplumProvider struct {
 }
 
 type medplumProviderModel struct {
-	BaseURL      types.String `tfsdk:"base_url"`
-	FHIRPath     types.String `tfsdk:"fhir_path"`
-	TokenURL     types.String `tfsdk:"token_url"`
-	ClientID     types.String `tfsdk:"client_id"`
-	ClientSecret types.String `tfsdk:"client_secret"`
-	AccessToken  types.String `tfsdk:"access_token"`
-	Email        types.String `tfsdk:"email"`
-	Password     types.String `tfsdk:"password"`
+	BaseURL        types.String `tfsdk:"base_url"`
+	FHIRPath       types.String `tfsdk:"fhir_path"`
+	TokenURL       types.String `tfsdk:"token_url"`
+	ClientID       types.String `tfsdk:"client_id"`
+	ClientSecret   types.String `tfsdk:"client_secret"`
+	AccessToken    types.String `tfsdk:"access_token"`
+	Email          types.String `tfsdk:"email"`
+	Password       types.String `tfsdk:"password"`
+	MedplumVersion types.String `tfsdk:"medplum_version"`
 }
 
 func (p *medplumProvider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -48,14 +50,15 @@ func (p *medplumProvider) Schema(_ context.Context, _ provider.SchemaRequest, re
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manage Medplum FHIR resources and project configuration.",
 		Attributes: map[string]schema.Attribute{
-			"base_url":      schema.StringAttribute{Optional: true, MarkdownDescription: "Medplum (or gateway) base URL. Env: MEDPLUM_BASE_URL."},
-			"fhir_path":     schema.StringAttribute{Optional: true, MarkdownDescription: "FHIR base path. Default /fhir/R4. Env: MEDPLUM_FHIR_PATH."},
-			"token_url":     schema.StringAttribute{Optional: true, MarkdownDescription: "OAuth token endpoint. Default base_url + /oauth2/token. Env: MEDPLUM_TOKEN_URL."},
-			"client_id":     schema.StringAttribute{Optional: true, MarkdownDescription: "OAuth client id. Env: MEDPLUM_CLIENT_ID."},
-			"client_secret": schema.StringAttribute{Optional: true, Sensitive: true, MarkdownDescription: "OAuth client secret. Env: MEDPLUM_CLIENT_SECRET."},
-			"access_token":  schema.StringAttribute{Optional: true, Sensitive: true, MarkdownDescription: "Pre-obtained bearer token. Env: MEDPLUM_ACCESS_TOKEN."},
-			"email":         schema.StringAttribute{Optional: true, MarkdownDescription: "Super-admin email. Env: MEDPLUM_EMAIL."},
-			"password":      schema.StringAttribute{Optional: true, Sensitive: true, MarkdownDescription: "Super-admin password. Env: MEDPLUM_PASSWORD."},
+			"base_url":        schema.StringAttribute{Optional: true, MarkdownDescription: "Medplum (or gateway) base URL. Env: MEDPLUM_BASE_URL."},
+			"fhir_path":       schema.StringAttribute{Optional: true, MarkdownDescription: "FHIR base path. Default /fhir/R4. Env: MEDPLUM_FHIR_PATH."},
+			"token_url":       schema.StringAttribute{Optional: true, MarkdownDescription: "OAuth token endpoint. Default base_url + /oauth2/token. Env: MEDPLUM_TOKEN_URL."},
+			"client_id":       schema.StringAttribute{Optional: true, MarkdownDescription: "OAuth client id. Env: MEDPLUM_CLIENT_ID."},
+			"client_secret":   schema.StringAttribute{Optional: true, Sensitive: true, MarkdownDescription: "OAuth client secret. Env: MEDPLUM_CLIENT_SECRET."},
+			"access_token":    schema.StringAttribute{Optional: true, Sensitive: true, MarkdownDescription: "Pre-obtained bearer token. Env: MEDPLUM_ACCESS_TOKEN."},
+			"email":           schema.StringAttribute{Optional: true, MarkdownDescription: "Super-admin email. Env: MEDPLUM_EMAIL."},
+			"password":        schema.StringAttribute{Optional: true, Sensitive: true, MarkdownDescription: "Super-admin password. Env: MEDPLUM_PASSWORD."},
+			"medplum_version": schema.StringAttribute{Optional: true, MarkdownDescription: "Medplum server version used to select the profile support matrix. Default 5.0.10. Env: MEDPLUM_VERSION."},
 		},
 	}
 }
@@ -96,7 +99,12 @@ func (p *medplumProvider) Configure(ctx context.Context, req provider.ConfigureR
 		return
 	}
 
-	data := &providerData{Client: c, Validator: v}
+	medplumVersion := firstNonEmpty(m.MedplumVersion, "MEDPLUM_VERSION")
+	if medplumVersion == "" {
+		medplumVersion = "5.0.10"
+	}
+
+	data := &providerData{Client: c, Validator: v, MedplumVersion: medplumVersion}
 	resp.ResourceData = data
 	resp.DataSourceData = data
 }

@@ -19,7 +19,7 @@ services:
       timeout: 5s
       retries: 20
   medplum:
-    image: medplum/medplum-server:5.1.14
+    image: medplum/medplum-server:5.0.10
     # The server ENTRYPOINT is `node ... index.js`; the config source must be passed
     # as an argument. "env" tells Medplum to read config from MEDPLUM_* env vars
     # (server src/config/loader.ts). Without it the server defaults to

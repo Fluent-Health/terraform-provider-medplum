@@ -88,7 +88,11 @@ func (r *fhirProfileResource) ModifyPlan(ctx context.Context, req resource.Modif
 	}
 
 	// 2. Medplum-context useful-profile gate.
-	report, err := fhirprofile.Analyze(body)
+	version := "5.0.10"
+	if r.data != nil && r.data.MedplumVersion != "" {
+		version = r.data.MedplumVersion
+	}
+	report, err := fhirprofile.AnalyzeForVersion(body, version)
 	if err != nil {
 		resp.Diagnostics.AddAttributeError(path.Root("structure_definition"), "Profile analysis failed", err.Error())
 		return

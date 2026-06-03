@@ -191,6 +191,32 @@ func Analyze(sdJSON []byte) (Report, error) {
 	return rep, nil
 }
 
+// supportedVersions enumerates Medplum versions whose profile-validation behavior
+// the matrix has been verified against. Keep newest last.
+var supportedVersions = []string{"5.0.10", "5.1.14"}
+
+// AnalyzeForVersion classifies an SD using the support matrix for the given
+// Medplum version. Unknown versions fall back to the newest verified matrix and
+// add a WARN finding. (Per the 5.0.10 verification, the classification rules are
+// identical across the supported versions; this function is the seam for any
+// future divergence — branch on `version` inside the relevant rule when needed.)
+func AnalyzeForVersion(sdJSON []byte, version string) (Report, error) {
+	rep, err := Analyze(sdJSON)
+	if err != nil {
+		return rep, err
+	}
+	known := false
+	for _, v := range supportedVersions {
+		if v == version {
+			known = true
+		}
+	}
+	if !known {
+		rep.warn("provider", fmt.Sprintf("unrecognized Medplum version %q; using the matrix verified for %s (re-verify on upgrade)", version, supportedVersions[len(supportedVersions)-1]))
+	}
+	return rep, nil
+}
+
 func (r *Report) reject(path, msg string) {
 	r.Findings = append(r.Findings, Finding{SeverityReject, path, msg})
 }
