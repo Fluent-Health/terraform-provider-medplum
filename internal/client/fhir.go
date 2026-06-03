@@ -28,10 +28,13 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("medplum API error (HTTP %d): %s", e.StatusCode, detail)
 }
 
-// IsNotFound reports whether err is an APIError with HTTP 404.
+// IsNotFound reports whether err is an APIError indicating the resource is not
+// present: HTTP 404 (Not Found) or 410 (Gone). FHIR/Medplum returns 410 for a
+// resource that has been deleted, so for delete-tolerance and read-removal both
+// statuses mean "no longer there".
 func IsNotFound(err error) bool {
 	var ae *APIError
-	return errors.As(err, &ae) && ae.StatusCode == http.StatusNotFound
+	return errors.As(err, &ae) && (ae.StatusCode == http.StatusNotFound || ae.StatusCode == http.StatusGone)
 }
 
 func (c *Client) fhirURL(parts ...string) string {

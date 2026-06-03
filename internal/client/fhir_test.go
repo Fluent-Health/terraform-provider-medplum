@@ -119,3 +119,15 @@ func TestFHIRRead_EmptyID(t *testing.T) {
 		t.Fatal("expected error for empty id, got nil")
 	}
 }
+
+func TestIsNotFound_TreatsGoneAsNotFound(t *testing.T) {
+	if !IsNotFound(&APIError{StatusCode: 410, Diagnostics: "deleted"}) {
+		t.Fatal("expected HTTP 410 (Gone) to be treated as not-found")
+	}
+	if !IsNotFound(&APIError{StatusCode: 404}) {
+		t.Fatal("expected HTTP 404 to be not-found")
+	}
+	if IsNotFound(&APIError{StatusCode: 400}) {
+		t.Fatal("400 must not be not-found")
+	}
+}
