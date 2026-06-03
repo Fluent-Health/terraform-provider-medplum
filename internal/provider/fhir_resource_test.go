@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
@@ -19,27 +20,40 @@ func testAccPreCheck(t *testing.T) {
 	}
 }
 
-func TestAccFHIRResource_basic(t *testing.T) {
+func TestAccFHIRResource_createUpdateImport(t *testing.T) {
+	var firstVersionID string
+	suffix := acctest.RandStringFromCharSet(8, acctest.CharSetAlphaNum)
+
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccFHIRResourceConfig("active"),
+				Config: testAccFHIRResourceConfig("active", suffix),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("medplum_fhir_resource.test", "id"),
-					resource.TestCheckResourceAttrSet("medplum_fhir_resource.test", "version_id"),
+					resource.TestCheckResourceAttrWith("medplum_fhir_resource.test", "version_id", func(v string) error {
+						firstVersionID = v
+						return nil
+					}),
 					resource.TestCheckResourceAttr("medplum_fhir_resource.test", "resource_type", "ValueSet"),
 				),
 			},
 			{
 				// No-op re-apply must produce an empty plan (drift stability).
-				Config:   testAccFHIRResourceConfig("active"),
+				Config:   testAccFHIRResourceConfig("active", suffix),
 				PlanOnly: true,
 			},
 			{
-				Config: testAccFHIRResourceConfig("draft"),
-				Check:  resource.TestCheckResourceAttrSet("medplum_fhir_resource.test", "version_id"),
+				Config: testAccFHIRResourceConfig("draft", suffix),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrWith("medplum_fhir_resource.test", "version_id", func(v string) error {
+						if v == firstVersionID {
+							return fmt.Errorf("version_id did not change after update: %s", v)
+						}
+						return nil
+					}),
+				),
 			},
 			{
 				ResourceName:      "medplum_fhir_resource.test",
@@ -53,17 +67,17 @@ func TestAccFHIRResource_basic(t *testing.T) {
 	})
 }
 
-func testAccFHIRResourceConfig(status string) string {
+func testAccFHIRResourceConfig(status string, urlSuffix string) string {
 	return fmt.Sprintf(`
 resource "medplum_fhir_resource" "test" {
   resource_type = "ValueSet"
   body = jsonencode({
     resourceType = "ValueSet"
     status       = %q
-    url          = "http://example.com/fhir/ValueSet/tf-acc-test"
+    url          = "http://example.com/fhir/ValueSet/tf-acc-test-%s"
   })
 }
-`, status)
+`, status, urlSuffix)
 }
 
 func importIDFunc(name string) resource.ImportStateIdFunc {
