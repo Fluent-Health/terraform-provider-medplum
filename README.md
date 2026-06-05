@@ -124,3 +124,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md). Bug reports and pull requests are welc
 ## License
 
 [Apache 2.0](./LICENSE)
+
+---
+*Created and maintained by [Fluent Health](https://github.com/Fluent-Health).*
+

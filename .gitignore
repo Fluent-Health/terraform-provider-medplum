@@ -12,3 +12,12 @@ coverage.out
 terraform.rc
 # Internal planning docs (not shipped OSS)
 docs/superpowers/
+
+# Security / Secrets
+.env
+*.pem
+*.key
+*.p12
+*.pfx
+service-account*.json
+*-sa-key.json
