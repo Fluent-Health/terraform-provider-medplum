@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
@@ -30,6 +31,7 @@ type fhirResourceModel struct {
 	ID           types.String `tfsdk:"id"`
 	VersionID    types.String `tfsdk:"version_id"`
 	LastUpdated  types.String `tfsdk:"last_updated"`
+	Validation   types.String `tfsdk:"validation"`
 }
 
 func (r *fhirResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -50,9 +52,20 @@ func (r *fhirResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 				MarkdownDescription: "The FHIR resource as JSON. Do not set 'id'; it is server-assigned.",
 				PlanModifiers:       []planmodifier.String{semanticJSONBody()},
 			},
-			"id":           schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
-			"version_id":   schema.StringAttribute{Computed: true},
-			"last_updated": schema.StringAttribute{Computed: true},
+			"id": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			// Keep the prior server-managed metadata when nothing else changes,
+			// so an `import` (or any no-op plan) doesn't show version_id/
+			// last_updated flipping to "(known after apply)" as a spurious diff.
+			"version_id":   schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"last_updated": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"validation": schema.StringAttribute{
+				Optional: true,
+				Computed: true,
+				Default:  stringdefault.StaticString("error"),
+				MarkdownDescription: "How FHIR R4 schema-validation results are reported: `error` (default — fails the plan), " +
+					"`warning` (report but allow), or `none` (skip). Use `warning`/`none` for resources that " +
+					"intentionally use Medplum-accepted constructs outside strict R4 (e.g. custom StructureMap transforms).",
+			},
 		},
 	}
 }
@@ -109,7 +122,14 @@ func (r *fhirResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRe
 		return
 	}
 	if err := r.data.Validator.Validate(m.ResourceType.ValueString(), []byte(m.Body.ValueString())); err != nil {
-		resp.Diagnostics.AddAttributeError(path.Root("body"), "FHIR schema validation failed", err.Error())
+		switch m.Validation.ValueString() {
+		case "none":
+			// Validation explicitly disabled for this resource.
+		case "warning":
+			resp.Diagnostics.AddAttributeWarning(path.Root("body"), "FHIR schema validation failed", err.Error())
+		default: // "error" (also the default) — any unrecognized value is strict.
+			resp.Diagnostics.AddAttributeError(path.Root("body"), "FHIR schema validation failed", err.Error())
+		}
 	}
 }
 

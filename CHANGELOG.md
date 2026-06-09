@@ -2,6 +2,12 @@
 
 ### Bug Fixes
 
+* **fhir_resource:** stabilize server-managed `version_id`/`last_updated` with `UseStateForUnknown` so `terraform import` (and any no-op plan) no longer shows them flipping to "(known after apply)" as a spurious in-place update.
+
+### Features
+
+* **fhir_resource:** add a `validation` attribute (`error` default | `warning` | `none`) controlling how FHIR R4 schema-validation results are reported, for resources that intentionally use Medplum-accepted constructs outside strict R4.
+
 * **client:** treat a read that returns HTTP 200 with an error `OperationOutcome` (e.g. a Gravitee gateway intermittently answering with `200 + "Not found"` instead of the resource) as a transient error: retry it with backoff and, if it persists, surface an error rather than storing the OperationOutcome as the resource body. Mirrors Medplum's own retry philosophy; a success/information OperationOutcome (delete response) is unaffected.
 
 # v0.1.5 (2026-06-09)
