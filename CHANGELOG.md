@@ -1,5 +1,11 @@
 # Unreleased
 
+# v0.1.3 (2026-06-09)
+
+### Bug Fixes
+
+* **client:** auto-detect the OAuth client-credentials auth style (`AuthStyleAutoDetect`) instead of hardcoding body params. A Gravitee AM token endpoint fronting Medplum requires `client_secret_basic` and rejected params with `invalid_client: missing or unsupported authentication method`. Probes Basic first, falls back to params for direct Medplum.
+
 # v0.1.2 (2026-06-09)
 
 ### Bug Fixes

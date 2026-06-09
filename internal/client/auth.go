@@ -28,7 +28,12 @@ func (c Config) tokenSource(ctx context.Context) (oauth2.TokenSource, error) {
 			ClientID:     c.ClientID,
 			ClientSecret: c.ClientSecret,
 			TokenURL:     c.tokenURL(),
-			AuthStyle:    oauth2.AuthStyleInParams,
+			// AutoDetect probes Basic auth (client_secret_basic) first, then
+			// falls back to body params (client_secret_post). Medplum direct
+			// accepts params, but a Gravitee AM token endpoint in front of it
+			// only accepts client_secret_basic — hardcoding params 401s there
+			// with "invalid_client: missing or unsupported authentication method".
+			AuthStyle: oauth2.AuthStyleAutoDetect,
 		}
 		return cc.TokenSource(ctx), nil
 	case c.hasLogin():
