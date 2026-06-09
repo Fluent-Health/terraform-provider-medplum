@@ -1,5 +1,7 @@
 # Unreleased
 
+# v0.1.6 (2026-06-09)
+
 ### Bug Fixes
 
 * **fhir_resource:** compare FHIR arrays order-insensitively in the drift check — Medplum reorders array elements (e.g. `CodeSystem.concept`, `compose.include`, extensions) on write, which previously surfaced as spurious diffs. A genuinely changed/added/removed element is still detected.
