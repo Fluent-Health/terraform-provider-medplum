@@ -1,5 +1,11 @@
 # Unreleased
 
+# v0.1.2 (2026-06-09)
+
+### Bug Fixes
+
+* **client:** detach the OAuth token source from the Configure-time context. Terraform cancels that context once Configure returns, so client-credentials token fetches during CRUD failed with "context canceled" on larger plans/applies (only the first token succeeded). Token fetches now use a background context, matching the email/password path.
+
 # v0.1.1 (2026-06-09)
 
 ### Security
