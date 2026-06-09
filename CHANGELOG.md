@@ -1,5 +1,11 @@
 # Unreleased
 
+# v0.1.5 (2026-06-09)
+
+### Bug Fixes
+
+* **fhir_resource:** suppress the plan diff when config is a subset of the stored body (use `Contains`, not `Equal`, in the body plan modifier). After `terraform import` the state holds the full server body (server-managed `meta`, narrative `text`, defaults), so comparing it for strict equality against the user's config subset marked every imported resource as needing an update. Now mirrors the Read drift check.
+
 # v0.1.4 (2026-06-09)
 
 ### Bug Fixes

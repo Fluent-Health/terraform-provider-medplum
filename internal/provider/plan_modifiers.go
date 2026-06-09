@@ -9,8 +9,13 @@ import (
 )
 
 // semanticJSONBody returns a plan modifier that keeps the prior state value when
-// the planned FHIR body is semantically equal to it (ignoring key order and
-// server-managed meta fields), so cosmetic reformatting does not produce a diff.
+// the planned FHIR body is already satisfied by it — i.e. the config is a subset
+// of the stored body (ignoring key order, server-managed meta, and extra
+// server-added fields). This mirrors the Read drift check (fhirjson.Contains)
+// and, in particular, stops `terraform import` from producing a permanent diff:
+// after import the state holds the full server body (meta.project, meta.author,
+// narrative text, server defaults, ...) while config holds only the user's
+// desired subset.
 func semanticJSONBody() planmodifier.String { return semanticJSONModifier{} }
 
 type semanticJSONModifier struct{}
@@ -30,8 +35,12 @@ func (m semanticJSONModifier) PlanModifyString(_ context.Context, req planmodifi
 	if req.PlanValue.IsNull() || req.PlanValue.IsUnknown() {
 		return
 	}
-	eq, err := fhirjson.Equal([]byte(req.StateValue.ValueString()), []byte(req.PlanValue.ValueString()))
-	if err == nil && eq {
+	// Suppress the diff when the planned config (PlanValue) is contained in the
+	// stored body (StateValue) — the server already satisfies the desired
+	// config. Using Contains rather than Equal lets the full server body held in
+	// state after import match the user's smaller config subset.
+	contained, err := fhirjson.Contains([]byte(req.PlanValue.ValueString()), []byte(req.StateValue.ValueString()))
+	if err == nil && contained {
 		resp.PlanValue = req.StateValue
 	}
 }
