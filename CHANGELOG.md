@@ -9,3 +9,7 @@
 * **medplum_user:** manage Medplum User resources
 * **medplum_project:** manage Medplum Project resources
 * **medplum_fhir_profile:** manage FHIR StructureDefinition (profile) resources stored in Medplum
+
+### Reliability
+
+* **client:** retry transient `429`/`502`/`503`/`504` responses with `Retry-After`-aware exponential backoff, so large concurrent applies ride out Medplum throttling instead of failing

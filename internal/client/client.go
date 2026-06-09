@@ -81,7 +81,9 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 	}
 	base := cfg.HTTPClient
 	if base == nil {
-		base = http.DefaultClient
+		// Retry transient throttling/gateway errors (429/502/503/504) beneath
+		// the oauth2 token layer so retries carry a valid bearer token.
+		base = &http.Client{Transport: newRetryTransport(http.DefaultTransport)}
 	}
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, base)
 	ts, err := cfg.tokenSource(ctx)
