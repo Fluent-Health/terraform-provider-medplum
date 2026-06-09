@@ -155,3 +155,22 @@ func TestContains_NestedObjectContained(t *testing.T) {
 		t.Fatal("expected nested object with extra server field to be contained")
 	}
 }
+
+func TestContains_ArrayOrderInsensitive(t *testing.T) {
+	// Medplum reorders array elements on write; reordering must not be a diff.
+	config := []byte(`{"resourceType":"CodeSystem","concept":[{"code":"a"},{"code":"b"}]}`)
+	server := []byte(`{"resourceType":"CodeSystem","id":"1","concept":[{"code":"b"},{"code":"a"}]}`)
+	ok, err := Contains(config, server)
+	if err != nil || !ok {
+		t.Fatalf("expected reordered array to be contained; ok=%v err=%v", ok, err)
+	}
+}
+
+func TestContains_ChangedArrayElementNotContained(t *testing.T) {
+	config := []byte(`{"resourceType":"CodeSystem","concept":[{"code":"a"},{"code":"x"}]}`)
+	server := []byte(`{"resourceType":"CodeSystem","concept":[{"code":"b"},{"code":"a"}]}`)
+	ok, _ := Contains(config, server)
+	if ok {
+		t.Fatal("expected a genuinely changed element to NOT be contained")
+	}
+}

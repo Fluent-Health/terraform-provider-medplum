@@ -2,6 +2,9 @@
 
 ### Bug Fixes
 
+* **fhir_resource:** compare FHIR arrays order-insensitively in the drift check — Medplum reorders array elements (e.g. `CodeSystem.concept`, `compose.include`, extensions) on write, which previously surfaced as spurious diffs. A genuinely changed/added/removed element is still detected.
+* **fhir_resource:** make the new `validation` attribute Optional-only (no Computed default) so it does not surface as a spurious `+ validation` diff on every imported resource.
+
 * **fhir_resource:** stabilize server-managed `version_id`/`last_updated` with `UseStateForUnknown` so `terraform import` (and any no-op plan) no longer shows them flipping to "(known after apply)" as a spurious in-place update.
 
 ### Features

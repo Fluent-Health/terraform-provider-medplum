@@ -11,7 +11,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
@@ -59,10 +58,11 @@ func (r *fhirResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 			"version_id":   schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 			"last_updated": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 			"validation": schema.StringAttribute{
+				// Optional only (no Computed/Default): a Computed default would
+				// surface as a spurious "+ validation" diff on every import, since
+				// imported state has no value. Unset is treated as "error" in code.
 				Optional: true,
-				Computed: true,
-				Default:  stringdefault.StaticString("error"),
-				MarkdownDescription: "How FHIR R4 schema-validation results are reported: `error` (default — fails the plan), " +
+				MarkdownDescription: "How FHIR R4 schema-validation results are reported: `error` (default when unset — fails the plan), " +
 					"`warning` (report but allow), or `none` (skip). Use `warning`/`none` for resources that " +
 					"intentionally use Medplum-accepted constructs outside strict R4 (e.g. custom StructureMap transforms).",
 			},

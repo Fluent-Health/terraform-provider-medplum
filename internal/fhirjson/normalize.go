@@ -111,12 +111,26 @@ func contains(c, s any) bool {
 		}
 		return true
 	case []any:
+		// Order-insensitive containment: Medplum reorders array elements on write
+		// (e.g. CodeSystem.concept, ValueSet.compose.include, extensions), so a
+		// position-by-position comparison reports spurious diffs. Require every
+		// config element to be satisfied by a distinct server element instead.
+		// A genuinely changed element still matches nothing and surfaces a diff.
 		sv, ok := s.([]any)
 		if !ok || len(sv) != len(cv) {
 			return false
 		}
-		for i := range cv {
-			if !contains(cv[i], sv[i]) {
+		used := make([]bool, len(sv))
+		for _, ce := range cv {
+			matched := false
+			for i, se := range sv {
+				if !used[i] && contains(ce, se) {
+					used[i] = true
+					matched = true
+					break
+				}
+			}
+			if !matched {
 				return false
 			}
 		}
