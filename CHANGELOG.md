@@ -1,5 +1,11 @@
 # Unreleased
 
+# v0.1.4 (2026-06-09)
+
+### Bug Fixes
+
+* **fhir_resource:** treat an empty array in config as equal to the server omitting that field. FHIR forbids empty arrays, so Medplum drops them on write; the drift check previously flagged config `header: []` (etc.) vs the server's omitted field as a spurious diff, marking nearly every imported resource as needing an update.
+
 # v0.1.3 (2026-06-09)
 
 ### Bug Fixes

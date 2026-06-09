@@ -80,6 +80,34 @@ func TestContains_ServerSupersetIsContained(t *testing.T) {
 	}
 }
 
+func TestContains_EmptyConfigArrayEqualsServerOmission(t *testing.T) {
+	// FHIR forbids empty arrays, so Medplum drops them on write. An empty array
+	// in config must match the server omitting the field (e.g. a Subscription
+	// channel.header = [] that the server stores without a header).
+	config := []byte(`{"resourceType":"Subscription","channel":{"type":"rest-hook","endpoint":"https://x","header":[]}}`)
+	server := []byte(`{"resourceType":"Subscription","id":"1","channel":{"type":"rest-hook","endpoint":"https://x"}}`)
+	ok, err := Contains(config, server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected empty config array to equal server omission")
+	}
+}
+
+func TestContains_NonEmptyConfigArrayStillRequiresServerField(t *testing.T) {
+	// A non-empty config array must still be present in the server.
+	config := []byte(`{"resourceType":"Subscription","channel":{"header":["X-Key: v"]}}`)
+	server := []byte(`{"resourceType":"Subscription","channel":{}}`)
+	ok, err := Contains(config, server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("expected non-empty config array missing from server to not be contained")
+	}
+}
+
 func TestContains_UserFieldDiffersNotContained(t *testing.T) {
 	config := []byte(`{"resourceType":"ValueSet","status":"active"}`)
 	server := []byte(`{"resourceType":"ValueSet","status":"draft","meta":{"project":"p"}}`)

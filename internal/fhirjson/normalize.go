@@ -81,6 +81,12 @@ func Contains(config, server []byte) (bool, error) {
 	return contains(c, s), nil
 }
 
+// isEmptyArray reports whether v is a JSON array with no elements.
+func isEmptyArray(v any) bool {
+	a, ok := v.([]any)
+	return ok && len(a) == 0
+}
+
 func contains(c, s any) bool {
 	switch cv := c.(type) {
 	case map[string]any:
@@ -89,8 +95,17 @@ func contains(c, s any) bool {
 			return false
 		}
 		for k, v := range cv {
-			child, ok := sv[k]
-			if !ok || !contains(v, child) {
+			child, present := sv[k]
+			if !present {
+				// FHIR forbids empty arrays, so the server drops them on write.
+				// An empty array in config therefore equals the server omitting
+				// the field; treat it as satisfied rather than a spurious diff.
+				if isEmptyArray(v) {
+					continue
+				}
+				return false
+			}
+			if !contains(v, child) {
 				return false
 			}
 		}
