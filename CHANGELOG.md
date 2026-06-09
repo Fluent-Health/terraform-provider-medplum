@@ -1,5 +1,7 @@
 # Unreleased
 
+# v0.1.0 (2026-06-09)
+
 ### Features
 
 * **medplum_fhir_resource:** manage any FHIR R4 resource stored in Medplum by resource type and ID
