@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"strconv"
@@ -72,7 +73,22 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		if err != nil {
 			return nil, err
 		}
-		if attempt >= t.maxRetries || !retryableStatus(resp.StatusCode) {
+
+		retryable := retryableStatus(resp.StatusCode)
+		// A read (GET) that returns 2xx but an error OperationOutcome is a
+		// transient gateway anomaly (200 + "Not found") — retry it like a 5xx.
+		// Peek the body, then restore it for the caller.
+		if !retryable && req.Method == http.MethodGet && resp.StatusCode/100 == 2 {
+			peek, rerr := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if rerr != nil {
+				return nil, rerr
+			}
+			resp.Body = io.NopCloser(bytes.NewReader(peek))
+			retryable = isErrorOutcome(peek)
+		}
+
+		if attempt >= t.maxRetries || !retryable {
 			return resp, nil
 		}
 

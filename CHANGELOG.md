@@ -1,5 +1,9 @@
 # Unreleased
 
+### Bug Fixes
+
+* **client:** treat a read that returns HTTP 200 with an error `OperationOutcome` (e.g. a Gravitee gateway intermittently answering with `200 + "Not found"` instead of the resource) as a transient error: retry it with backoff and, if it persists, surface an error rather than storing the OperationOutcome as the resource body. Mirrors Medplum's own retry philosophy; a success/information OperationOutcome (delete response) is unaffected.
+
 # v0.1.5 (2026-06-09)
 
 ### Bug Fixes

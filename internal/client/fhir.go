@@ -72,7 +72,35 @@ func (c *Client) do(ctx context.Context, method, url string, body []byte) ([]byt
 	if resp.StatusCode >= 400 {
 		return nil, &APIError{StatusCode: resp.StatusCode, Diagnostics: parseOutcome(respBody), Body: string(respBody)}
 	}
+	// Some gateways (e.g. Gravitee in front of Medplum) intermittently answer a
+	// read with HTTP 200 but an error OperationOutcome body ("Not found") instead
+	// of the resource. Never let that masquerade as a real resource: surface it
+	// as an error so it is retried (see retryTransport) rather than stored.
+	if isErrorOutcome(respBody) {
+		return nil, &APIError{StatusCode: resp.StatusCode, Diagnostics: parseOutcome(respBody), Body: string(respBody)}
+	}
 	return respBody, nil
+}
+
+// isErrorOutcome reports whether b is an OperationOutcome carrying an error- or
+// fatal-severity issue. A success/information OperationOutcome (e.g. the body of
+// a delete) is not treated as an error.
+func isErrorOutcome(b []byte) bool {
+	var oo struct {
+		ResourceType string `json:"resourceType"`
+		Issue        []struct {
+			Severity string `json:"severity"`
+		} `json:"issue"`
+	}
+	if err := json.Unmarshal(b, &oo); err != nil || oo.ResourceType != "OperationOutcome" {
+		return false
+	}
+	for _, i := range oo.Issue {
+		if i.Severity == "error" || i.Severity == "fatal" {
+			return true
+		}
+	}
+	return false
 }
 
 func parseOutcome(b []byte) string {
