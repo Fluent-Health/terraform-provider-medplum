@@ -14,7 +14,15 @@ permissions:
   contents: write
 
 jobs:
+  # Gate the release on the full acceptance suite running against the tagged
+  # commit. Without this, a provider that fails acceptance (e.g. the "Provider
+  # produced inconsistent result after apply" update bug) could still be tagged
+  # and published, as happened with v0.1.6.
+  acceptance:
+    uses: ./.github/workflows/acceptance.yml
+
   goreleaser:
+    needs: [acceptance]
     runs-on: ubuntu-latest
     environment:
       name: release
