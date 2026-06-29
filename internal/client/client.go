@@ -75,7 +75,7 @@ type Client struct {
 
 // New validates the config and returns a Client whose underlying transport
 // injects a bearer token from the configured auth method.
-func New(ctx context.Context, cfg Config) (*Client, error) {
+func New(_ context.Context, cfg Config) (*Client, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -85,12 +85,13 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		// the oauth2 token layer so retries carry a valid bearer token.
 		base = &http.Client{Transport: newRetryTransport(http.DefaultTransport)}
 	}
-	// Detach from the caller's (Configure-time) context, which Terraform cancels
-	// once Configure returns. The token source and oauth2 client outlive that
-	// context — binding them to it makes every lazy token fetch during CRUD fail
-	// with "context canceled". Carry only the custom HTTP client forward; each
-	// CRUD call still passes its own cancelable context to the actual request.
-	ctx = context.WithValue(context.Background(), oauth2.HTTPClient, base)
+	// Deliberately ignore the caller's (Configure-time) context, which Terraform
+	// cancels once Configure returns. The token source and oauth2 client outlive
+	// that context — binding them to it makes every lazy token fetch during CRUD
+	// fail with "context canceled". Build a fresh background context carrying only
+	// the custom HTTP client; each CRUD call still passes its own cancelable
+	// context to the actual request.
+	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, base)
 	ts, err := cfg.tokenSource(ctx)
 	if err != nil {
 		return nil, err

@@ -1,0 +1,45 @@
+# Reusable acceptance-test workflow.
+#
+# Spins up a disposable Medplum (docker compose) and runs the full provider
+# acceptance suite against it. Called by both ci.yml (on every PR / push to
+# main) and release.yml (before a tag is released), so a release can never ship
+# a provider that fails acceptance — e.g. the "Provider produced inconsistent
+# result after apply" class of bug on resource updates.
+name: Acceptance
+
+on:
+  workflow_call:
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      # Install Terraform ourselves and point the test framework at it via
+      # TF_ACC_TERRAFORM_PATH. Otherwise terraform-plugin-testing auto-downloads
+      # the CLI and verifies the SHA256SUMS signature against an embedded
+      # HashiCorp GPG key, which fails with "openpgp: key expired".
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.12.1"
+          terraform_wrapper: false
+      - name: Start Medplum
+        run: docker compose -f docker-compose.test.yml up -d
+      - name: Wait for Medplum
+        run: ./scripts/wait-for-medplum.sh
+      - name: Acceptance tests
+        env:
+          TF_ACC: "1"
+          MEDPLUM_BASE_URL: "http://localhost:8103"
+          MEDPLUM_EMAIL: "admin@example.com"
+          MEDPLUM_PASSWORD: "medplum_admin"
+        run: |
+          export TF_ACC_TERRAFORM_PATH="$(which terraform)"
+          echo "Using Terraform at: $TF_ACC_TERRAFORM_PATH ($(terraform version | head -1))"
+          go test ./internal/provider/... -count=1 -v -timeout 30m
+      - name: Medplum logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.test.yml logs medplum

@@ -52,11 +52,15 @@ func (r *fhirResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 				PlanModifiers:       []planmodifier.String{semanticJSONBody()},
 			},
 			"id": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
-			// Keep the prior server-managed metadata when nothing else changes,
-			// so an `import` (or any no-op plan) doesn't show version_id/
-			// last_updated flipping to "(known after apply)" as a spurious diff.
-			"version_id":   schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
-			"last_updated": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			// Hold the prior server-managed metadata only when the body is
+			// semantically unchanged, so an `import` (or any no-op plan) doesn't
+			// show version_id/last_updated flipping to "(known after apply)" as a
+			// spurious diff. When the body changes, Medplum reassigns these, so
+			// they must stay unknown — a plain UseStateForUnknown would pin the
+			// stale value and trip "Provider produced inconsistent result after
+			// apply" on update.
+			"version_id":   schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{serverManagedMeta()}},
+			"last_updated": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{serverManagedMeta()}},
 			"validation": schema.StringAttribute{
 				// Optional only (no Computed/Default): a Computed default would
 				// surface as a spurious "+ validation" diff on every import, since
