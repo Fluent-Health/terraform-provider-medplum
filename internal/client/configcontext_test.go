@@ -16,14 +16,14 @@ import (
 func TestNew_ClientCredentials_SurvivesConfigContextCancel(t *testing.T) {
 	var tokenCalls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/oauth2/token":
+		switch r.URL.Path {
+		case "/oauth2/token":
 			tokenCalls++
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"access_token": "tok", "token_type": "Bearer", "expires_in": 3600,
 			})
-		case r.URL.Path == "/fhir/R4/ValueSet/123":
+		case "/fhir/R4/ValueSet/123":
 			w.Header().Set("Content-Type", "application/fhir+json")
 			_, _ = w.Write([]byte(`{"resourceType":"ValueSet","id":"123"}`))
 		default:
