@@ -1,5 +1,7 @@
 # Unreleased
 
+# v0.1.7 (2026-06-29)
+
 ### Bug Fixes
 
 * **fhir_resource:** stop pinning server-managed `version_id`/`last_updated` to their prior value when the FHIR body changes. The `UseStateForUnknown` modifier added in v0.1.6 was unconditional, so on an in-place update Terraform planned the old metadata values while Medplum assigned new ones on write, failing the apply with "Provider produced inconsistent result after apply". They are now held only when the body is semantically unchanged (no-op plan / post-import) and left "known after apply" when it changes. The no-op and import diff-suppression behaviour from v0.1.6 is preserved.
