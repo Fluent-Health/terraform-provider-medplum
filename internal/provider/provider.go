@@ -118,6 +118,7 @@ func (p *medplumProvider) Resources(_ context.Context) []func() resource.Resourc
 		NewUserResource,
 		NewProjectResource,
 		NewFHIRProfileResource,
+		NewFHIRDataMigrationResource,
 	}
 }
 
