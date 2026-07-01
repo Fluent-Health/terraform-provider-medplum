@@ -17,7 +17,7 @@ type fhirSearchDataSource struct{ data *providerData }
 type fhirSearchModel struct {
 	TargetResourceType types.String `tfsdk:"target_resource_type"`
 	Search             types.String `tfsdk:"search"`
-	Count              types.Int64  `tfsdk:"count"`
+	Total              types.Int64  `tfsdk:"total"`
 }
 
 func (d *fhirSearchDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -30,7 +30,7 @@ func (d *fhirSearchDataSource) Schema(_ context.Context, _ datasource.SchemaRequ
 		Attributes: map[string]schema.Attribute{
 			"target_resource_type": schema.StringAttribute{Required: true},
 			"search":               schema.StringAttribute{Required: true, MarkdownDescription: "Raw FHIR search query (e.g. `questionnaire=X&_tag:not=...`)."},
-			"count":                schema.Int64Attribute{Computed: true, MarkdownDescription: "Total matching resources."},
+			"total":                schema.Int64Attribute{Computed: true, MarkdownDescription: "Total matching resources (`Bundle.total`). Attribute is named `total`, not `count`, because `count` is a Terraform-reserved name."},
 		},
 	}
 }
@@ -70,7 +70,7 @@ func (d *fhirSearchDataSource) Read(ctx context.Context, req datasource.ReadRequ
 		resp.Diagnostics.AddError("Invalid search response", err.Error())
 		return
 	}
-	m.Count = types.Int64Value(b.Total)
+	m.Total = types.Int64Value(b.Total)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &m)...)
 }
 
