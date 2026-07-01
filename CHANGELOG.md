@@ -1,5 +1,17 @@
 # Unreleased
 
+# v0.2.0 (2026-07-01)
+
+### Features
+
+* **medplum_fhir_data_migration:** add a resource that performs idempotent, chunked, self-limiting bulk code-remaps over live FHIR resources via Medplum batch/transaction bundles. It rewrites matching `Coding`s (e.g. `QuestionnaireResponse` answers) as a coordinated step inside `terraform apply` — for keeping stored data consistent when a managed `ValueSet`/`CodeSystem` changes its codes. It is a task resource (records that a migration ran at a given transform hash, rather than tracking drift): Create/Update run a converging scan→remap→tag→write loop, Read is inert, and Delete is warn-only. Idempotency comes from a fixed-point transform, a `meta.tag` marker with a `_tag:not` self-limiting scan, and a `ModifyPlan` that keeps a no-op apply an empty plan. `batch` bundles are the default (per-entry, non-atomic; a failed page surfaces an error and re-`apply` resumes since migrated resources are skipped), with `transaction` available opt-in.
+
+* **medplum_fhir_search:** add a data source that reports the count (`Bundle.total`) of resources matching a FHIR search (via `_summary=count`), for previewing migration scope.
+
+### Reliability
+
+* **client:** add `FHIRSearch` (raw-query search) and `FHIRBundle` (batch/transaction bundle POST) to the FHIR client, reusing the existing `Retry-After`-aware retry and `OperationOutcome` error handling.
+
 # v0.1.7 (2026-06-29)
 
 ### Bug Fixes
