@@ -1,0 +1,20 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.RenderedProviderName}}"
+subcategory: "FHIR Data"
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+{{ .Description | trimspace }}
+
+The `search` is a raw FHIR query string. The provider appends `_summary=count` and returns the server's `Bundle.total`. To preview how many resources a `medplum_fhir_data_migration` still has to process, include the same `_tag:not=<marker_system>/<name>|<hash>` filter the migration uses — the count then converges to zero as the migration completes.
+
+{{ if .HasExample -}}
+## Example Usage
+
+{{tffile .ExampleFile }}
+{{- end }}
+
+{{ .SchemaMarkdown | trimspace }}

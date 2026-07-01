@@ -52,6 +52,10 @@ resource "medplum_fhir_resource" "blood_types" {
 - `body` (String) The FHIR resource as JSON. Do not set 'id'; it is server-assigned.
 - `resource_type` (String) FHIR resourceType, e.g. ValueSet. Must match body.resourceType.
 
+### Optional
+
+- `validation` (String) How FHIR R4 schema-validation results are reported: `error` (default when unset — fails the plan), `warning` (report but allow), or `none` (skip). Use `warning`/`none` for resources that intentionally use Medplum-accepted constructs outside strict R4 (e.g. custom StructureMap transforms).
+
 ### Read-Only
 
 - `id` (String) The ID of this resource.
