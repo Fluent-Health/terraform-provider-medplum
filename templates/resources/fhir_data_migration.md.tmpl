@@ -1,0 +1,24 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.RenderedProviderName}}"
+subcategory: "FHIR Data"
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+{{ .Description | trimspace }}
+
+This is a *task* resource: it records that a named migration ran at a given transform hash, rather than tracking drift of the migrated data. `Create`/`Update` run a converging scan → remap → tag → write loop; `Read` is inert; and `Delete` removes the record from state without reverting data or removing the marker tags. It is idempotent — every scanned resource is stamped with a `meta.tag` marker (`<marker_system>/<name>` = the spec hash) and the scan excludes already-tagged resources (`_tag:not`), so re-running converges and an unchanged configuration plans as a no-op. Changing the transform (a new hash) re-scans everything tagged at the old hash.
+
+Because FHIR has no search parameter for a coded answer value, the scan narrows by the caller-supplied `search` and matches codings in memory. Large migrations are chunked into one bundle per `page_size`. With the default `bundle_type = "batch"`, a page in which any entry fails to write halts the apply (the failed resources are not tagged and would otherwise be re-scanned indefinitely); fix the cause and re-run `terraform apply` to resume — already-migrated resources are skipped.
+
+`import` is not supported: there is no external key to import (the resource is a synthetic record of a migration run).
+
+{{ if .HasExample -}}
+## Example Usage
+
+{{tffile .ExampleFile }}
+{{- end }}
+
+{{ .SchemaMarkdown | trimspace }}
