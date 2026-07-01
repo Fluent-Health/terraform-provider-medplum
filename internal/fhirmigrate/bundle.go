@@ -57,7 +57,7 @@ func BuildBundle(bundleType string, resources []map[string]any) ([]byte, error) 
 		rt, _ := res["resourceType"].(string)
 		id, _ := res["id"].(string)
 		if rt == "" || id == "" {
-			return nil, fmt.Errorf("resource missing resourceType/id: %v", res)
+			return nil, fmt.Errorf("resource missing resourceType/id (resourceType=%q, id=%q)", rt, id)
 		}
 		entries = append(entries, map[string]any{
 			"request":  map[string]any{"method": "PUT", "url": rt + "/" + id},

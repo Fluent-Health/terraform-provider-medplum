@@ -271,11 +271,11 @@ func (r *dataMigrationResource) runMigration(ctx context.Context, m *dataMigrati
 		changed += pageChanged
 		failed += result.Failed
 		pages++
-		if result.Succeeded == 0 {
-			return fmt.Errorf("migration made no progress: a page of %d resources all failed to write (failed=%d); aborting to avoid an infinite scan loop", len(entries), result.Failed)
+		if result.Failed > 0 {
+			return fmt.Errorf("migration halted: %d of %d resources in a page failed to write (progress so far: scanned=%d, changed=%d, failed=%d). Failed resources are not marker-tagged and would be re-scanned indefinitely; fix the cause and re-run `terraform apply` to resume — already-migrated resources are skipped.", result.Failed, len(entries), scanned, changed, failed)
 		}
 		if pages > maxMigrationPages {
-			return fmt.Errorf("exceeded max pages (%d); aborting", maxMigrationPages)
+			return fmt.Errorf("migration exceeded max pages (%d) (scanned=%d, changed=%d); aborting", maxMigrationPages, scanned, changed)
 		}
 	}
 	m.ID = types.StringValue(name)
