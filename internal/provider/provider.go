@@ -123,5 +123,7 @@ func (p *medplumProvider) Resources(_ context.Context) []func() resource.Resourc
 }
 
 func (p *medplumProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return nil
+	return []func() datasource.DataSource{
+		NewFHIRSearchDataSource,
+	}
 }
