@@ -149,3 +149,19 @@ func (c *Client) FHIRDelete(ctx context.Context, resourceType, id string) error 
 	_, err := c.do(ctx, http.MethodDelete, c.fhirURL(resourceType, id), nil)
 	return err
 }
+
+// FHIRSearch GETs a search against a resource type with a raw query string
+// (e.g. "questionnaire=X&_tag:not=...&_count=50") and returns the searchset Bundle.
+func (c *Client) FHIRSearch(ctx context.Context, resourceType, rawQuery string) ([]byte, error) {
+	u := c.fhirURL(resourceType)
+	if rawQuery != "" {
+		u += "?" + rawQuery
+	}
+	return c.do(ctx, http.MethodGet, u, nil)
+}
+
+// FHIRBundle POSTs a batch/transaction Bundle to the base FHIR endpoint and
+// returns the response Bundle.
+func (c *Client) FHIRBundle(ctx context.Context, bundle []byte) ([]byte, error) {
+	return c.do(ctx, http.MethodPost, c.baseURL+c.fhirPath, bundle)
+}
