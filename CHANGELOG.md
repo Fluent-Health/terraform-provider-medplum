@@ -1,5 +1,11 @@
 # Unreleased
 
+# v0.2.1 (2026-07-01)
+
+### Documentation
+
+* Publish registry documentation for the `medplum_fhir_data_migration` resource and `medplum_fhir_search` data source (schema, examples, usage notes), which were added in v0.2.0 but not yet in the generated docs. Also sync `medplum_fhir_resource` docs, which were missing the `validation` attribute added in v0.1.6. No functional changes.
+
 # v0.2.0 (2026-07-01)
 
 ### Features
