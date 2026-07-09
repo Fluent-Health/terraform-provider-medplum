@@ -65,6 +65,43 @@ func TestApplyRemaps_fixedPoint(t *testing.T) {
 	}
 }
 
+func TestApplyRemaps_matchesSystemlessCodingByEmptyFromSystem(t *testing.T) {
+	r := map[string]any{
+		"resourceType": "Condition",
+		"id":           "c1",
+		"severity": map[string]any{
+			"coding": []any{
+				map[string]any{"code": "1255665007", "display": "Moderate"},
+			},
+			"text": "Moderate",
+		},
+	}
+	remaps := []Remap{
+		{From: Coding{System: "", Code: "1255665007"},
+			To: Coding{System: "http://snomed.info/sct", Code: "6736007", Display: "Moderate"}},
+	}
+	if !ApplyRemaps(r, remaps) {
+		t.Fatal("expected changed=true")
+	}
+	c := r["severity"].(map[string]any)["coding"].([]any)[0].(map[string]any)
+	if c["system"] != "http://snomed.info/sct" || c["code"] != "6736007" || c["display"] != "Moderate" {
+		t.Fatalf("system-less coding not remapped: %v", c)
+	}
+	if ApplyRemaps(r, remaps) {
+		t.Fatal("second application must report no change (fixed point)")
+	}
+}
+
+func TestApplyRemaps_emptyFromSystemDoesNotMatchSystemedCoding(t *testing.T) {
+	r := map[string]any{"system": "http://snomed.info/sct", "code": "1255665007"}
+	remaps := []Remap{
+		{From: Coding{System: "", Code: "1255665007"}, To: Coding{System: "http://x", Code: "999"}},
+	}
+	if ApplyRemaps(r, remaps) {
+		t.Fatal("empty from.system must not match a coding that has a system")
+	}
+}
+
 func TestSetMarkerTag_replacesSameSystem(t *testing.T) {
 	r := qr()
 	SetMarkerTag(r, "urn:m/diet", "h1")
@@ -90,8 +127,8 @@ func TestSetMarkerTag_replacesSameSystem(t *testing.T) {
 
 func TestSpecHash_stableAndSensitive(t *testing.T) {
 	s := Spec{TargetResourceType: "QuestionnaireResponse", Search: "questionnaire=X", MarkerSystem: "urn:m", Remaps: testRemaps}
-	if SpecHash(s) != SpecHash(s) {
-		t.Fatal("hash must be stable")
+	if h1, h2 := SpecHash(s), SpecHash(s); h1 != h2 {
+		t.Fatalf("hash must be stable, got %q and %q", h1, h2)
 	}
 	s2 := s
 	s2.Search = "questionnaire=Y"

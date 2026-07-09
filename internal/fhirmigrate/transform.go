@@ -29,9 +29,11 @@ type Spec struct {
 	Remaps             []Remap
 }
 
-// ApplyRemaps recursively walks resource and rewrites every object that looks
-// like a Coding (has string system+code) matching a remap's From. Returns
-// whether anything changed. Fixed point: re-applying yields no change.
+// ApplyRemaps recursively walks resource and rewrites every object with a
+// string `code` matching a remap's From. The From's system must match too: a
+// non-empty From.System matches only a coding carrying that exact system, and
+// an empty From.System matches a coding whose system is absent or empty.
+// Returns whether anything changed. Fixed point: re-applying yields no change.
 func ApplyRemaps(resource map[string]any, remaps []Remap) bool {
 	return applyNode(resource, remaps)
 }
@@ -40,18 +42,19 @@ func applyNode(node any, remaps []Remap) bool {
 	changed := false
 	switch v := node.(type) {
 	case map[string]any:
-		if sys, ok := v["system"].(string); ok {
-			if code, ok := v["code"].(string); ok {
-				for _, rm := range remaps {
-					if sys == rm.From.System && code == rm.From.Code {
-						v["system"] = rm.To.System
-						v["code"] = rm.To.Code
-						if rm.To.Display != "" {
-							v["display"] = rm.To.Display
-						}
-						changed = true
-						break
+		if code, ok := v["code"].(string); ok {
+			// system may be absent; treat that as the empty string so a remap
+			// with From.System == "" matches a Coding that carries no system.
+			sys, _ := v["system"].(string)
+			for _, rm := range remaps {
+				if code == rm.From.Code && sys == rm.From.System {
+					v["system"] = rm.To.System
+					v["code"] = rm.To.Code
+					if rm.To.Display != "" {
+						v["display"] = rm.To.Display
 					}
+					changed = true
+					break
 				}
 			}
 		}
