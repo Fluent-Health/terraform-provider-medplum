@@ -40,18 +40,19 @@ func applyNode(node any, remaps []Remap) bool {
 	changed := false
 	switch v := node.(type) {
 	case map[string]any:
-		if sys, ok := v["system"].(string); ok {
-			if code, ok := v["code"].(string); ok {
-				for _, rm := range remaps {
-					if sys == rm.From.System && code == rm.From.Code {
-						v["system"] = rm.To.System
-						v["code"] = rm.To.Code
-						if rm.To.Display != "" {
-							v["display"] = rm.To.Display
-						}
-						changed = true
-						break
+		if code, ok := v["code"].(string); ok {
+			// system may be absent; treat that as the empty string so a remap
+			// with From.System == "" matches a Coding that carries no system.
+			sys, _ := v["system"].(string)
+			for _, rm := range remaps {
+				if code == rm.From.Code && sys == rm.From.System {
+					v["system"] = rm.To.System
+					v["code"] = rm.To.Code
+					if rm.To.Display != "" {
+						v["display"] = rm.To.Display
 					}
+					changed = true
+					break
 				}
 			}
 		}
