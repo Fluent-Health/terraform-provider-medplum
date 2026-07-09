@@ -127,8 +127,8 @@ func TestSetMarkerTag_replacesSameSystem(t *testing.T) {
 
 func TestSpecHash_stableAndSensitive(t *testing.T) {
 	s := Spec{TargetResourceType: "QuestionnaireResponse", Search: "questionnaire=X", MarkerSystem: "urn:m", Remaps: testRemaps}
-	if SpecHash(s) != SpecHash(s) {
-		t.Fatal("hash must be stable")
+	if h1, h2 := SpecHash(s), SpecHash(s); h1 != h2 {
+		t.Fatalf("hash must be stable, got %q and %q", h1, h2)
 	}
 	s2 := s
 	s2.Search = "questionnaire=Y"

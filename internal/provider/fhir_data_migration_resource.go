@@ -167,9 +167,10 @@ func (m dataMigrationModel) toSpec() fhirmigrate.Spec {
 // no Update will run. Used by ModifyPlan to decide whether to pin the computed
 // outputs to state (so an unchanged config plans as a no-op).
 func configUnchanged(a, b dataMigrationModel) bool {
-	if !(a.Name.Equal(b.Name) && a.TargetResourceType.Equal(b.TargetResourceType) &&
+	sameScalars := a.Name.Equal(b.Name) && a.TargetResourceType.Equal(b.TargetResourceType) &&
 		a.Search.Equal(b.Search) && a.MarkerSystem.Equal(b.MarkerSystem) &&
-		a.BundleType.Equal(b.BundleType) && a.PageSize.Equal(b.PageSize)) {
+		a.BundleType.Equal(b.BundleType) && a.PageSize.Equal(b.PageSize)
+	if !sameScalars {
 		return false
 	}
 	if len(a.CodeRemap) != len(b.CodeRemap) {
@@ -177,8 +178,9 @@ func configUnchanged(a, b dataMigrationModel) bool {
 	}
 	for i := range a.CodeRemap {
 		x, y := a.CodeRemap[i], b.CodeRemap[i]
-		if !(x.From.System.Equal(y.From.System) && x.From.Code.Equal(y.From.Code) && x.From.Display.Equal(y.From.Display) &&
-			x.To.System.Equal(y.To.System) && x.To.Code.Equal(y.To.Code) && x.To.Display.Equal(y.To.Display)) {
+		sameRemap := x.From.System.Equal(y.From.System) && x.From.Code.Equal(y.From.Code) && x.From.Display.Equal(y.From.Display) &&
+			x.To.System.Equal(y.To.System) && x.To.Code.Equal(y.To.Code) && x.To.Display.Equal(y.To.Display)
+		if !sameRemap {
 			return false
 		}
 	}
@@ -272,7 +274,7 @@ func (r *dataMigrationResource) runMigration(ctx context.Context, m *dataMigrati
 		failed += result.Failed
 		pages++
 		if result.Failed > 0 {
-			return fmt.Errorf("migration halted: %d of %d resources in a page failed to write (progress so far: scanned=%d, changed=%d, failed=%d). Failed resources are not marker-tagged and would be re-scanned indefinitely; fix the cause and re-run `terraform apply` to resume — already-migrated resources are skipped.", result.Failed, len(entries), scanned, changed, failed)
+			return fmt.Errorf("migration halted: %d of %d resources in a page failed to write (progress so far: scanned=%d, changed=%d, failed=%d). Failed resources are not marker-tagged and would be re-scanned indefinitely; fix the cause and re-run `terraform apply` to resume — already-migrated resources are skipped", result.Failed, len(entries), scanned, changed, failed)
 		}
 		if pages > maxMigrationPages {
 			return fmt.Errorf("migration exceeded max pages (%d) (scanned=%d, changed=%d); aborting", maxMigrationPages, scanned, changed)
