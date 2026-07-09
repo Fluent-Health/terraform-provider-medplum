@@ -13,6 +13,11 @@ This is a *task* resource: it records that a named migration ran at a given tran
 
 Because FHIR has no search parameter for a coded answer value, the scan narrows by the caller-supplied `search` and matches codings in memory. Large migrations are chunked into one bundle per `page_size`. With the default `bundle_type = "batch"`, a page in which any entry fails to write halts the apply (the failed resources are not tagged and would otherwise be re-scanned indefinitely); fix the cause and re-run `terraform apply` to resume — already-migrated resources are skipped.
 
+A `code_remap` whose `from.system` is the empty string matches codings that
+carry **no `system`** (or an empty one) by `code` alone, and its `to` may add a
+system where there was none. Because this matches on code alone, pair it with a
+narrow `search` so unrelated system-less codings are not rewritten.
+
 `import` is not supported: there is no external key to import (the resource is a synthetic record of a migration run).
 
 ## Example Usage
@@ -49,6 +54,19 @@ resource "medplum_fhir_data_migration" "diet_codes" {
   # Tip: use `depends_on` to order the migration after the terminology resource
   # that introduced the new codes, e.g.
   #   depends_on = [medplum_fhir_resource.valueset_diet]
+}
+
+# Fix a Condition.severity coding stored with no system at all: match by code
+# alone (empty from.system) and add the correct SNOMED system + code.
+resource "medplum_fhir_data_migration" "condition_severity_moderate" {
+  name                 = "severity-moderate-snomed-6736007-condition"
+  target_resource_type = "Condition"
+  search               = "severity=1255665007"
+
+  code_remap {
+    from = { system = "", code = "1255665007" }
+    to   = { system = "http://snomed.info/sct", code = "6736007", display = "Moderate" }
+  }
 }
 ```
 

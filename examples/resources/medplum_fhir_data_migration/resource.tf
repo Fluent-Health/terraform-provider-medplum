@@ -30,3 +30,16 @@ resource "medplum_fhir_data_migration" "diet_codes" {
   # that introduced the new codes, e.g.
   #   depends_on = [medplum_fhir_resource.valueset_diet]
 }
+
+# Fix a Condition.severity coding stored with no system at all: match by code
+# alone (empty from.system) and add the correct SNOMED system + code.
+resource "medplum_fhir_data_migration" "condition_severity_moderate" {
+  name                 = "severity-moderate-snomed-6736007-condition"
+  target_resource_type = "Condition"
+  search               = "severity=1255665007"
+
+  code_remap {
+    from = { system = "", code = "1255665007" }
+    to   = { system = "http://snomed.info/sct", code = "6736007", display = "Moderate" }
+  }
+}

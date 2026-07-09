@@ -29,9 +29,11 @@ type Spec struct {
 	Remaps             []Remap
 }
 
-// ApplyRemaps recursively walks resource and rewrites every object that looks
-// like a Coding (has string system+code) matching a remap's From. Returns
-// whether anything changed. Fixed point: re-applying yields no change.
+// ApplyRemaps recursively walks resource and rewrites every object with a
+// string `code` matching a remap's From. The From's system must match too: a
+// non-empty From.System matches only a coding carrying that exact system, and
+// an empty From.System matches a coding whose system is absent or empty.
+// Returns whether anything changed. Fixed point: re-applying yields no change.
 func ApplyRemaps(resource map[string]any, remaps []Remap) bool {
 	return applyNode(resource, remaps)
 }
