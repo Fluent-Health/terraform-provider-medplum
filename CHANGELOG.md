@@ -1,5 +1,11 @@
 # Unreleased
 
+# v0.3.0 (2026-07-09)
+
+### Features
+
+* **medplum_fhir_data_migration:** a `code_remap` whose `from.system` is the empty string now matches codings that carry no `system` (or an empty one) by `code` alone, and its `to` may add a system where there was none. Enables migrating data written without a code system (e.g. `Condition.severity` codings stored as a bare code). Purely additive: any remap with a non-empty `from.system` behaves exactly as before.
+
 # v0.2.1 (2026-07-01)
 
 ### Documentation
