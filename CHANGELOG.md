@@ -1,5 +1,11 @@
 # Unreleased
 
+# v0.3.1 (2026-07-16)
+
+### Dependencies
+
+* Bump `terraform-plugin-framework` to 1.19.0, along with the companion `terraform-plugin-go`, `terraform-plugin-testing`, and `terraform-plugin-sdk/v2` libraries so the plugin stack builds against the updated `tfprotov5.ProviderServer` interface (which now requires `CloseEphemeralResource`). The `go` directive moves to 1.25.8 as required by the updated testing module. Build/dependency maintenance only; no provider behaviour changes.
+
 # v0.3.0 (2026-07-09)
 
 ### Features
