@@ -1,5 +1,11 @@
 # Unreleased
 
+# v0.3.2 (2026-07-16)
+
+### Dependencies
+
+* Bump `golang.org/x/crypto` to v0.54.0, resolving 13 open security advisories (6 critical, 2 high, 5 medium) against `golang.org/x/crypto < 0.52.0`. The companion `golang.org/x/{net,sys,text,mod,sync,tools}` modules move forward via `go mod tidy`. Indirect dependency only; no provider behaviour changes.
+
 # v0.3.1 (2026-07-16)
 
 ### Dependencies
