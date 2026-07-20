@@ -55,3 +55,13 @@ services:
       # to -1 disables the limiter entirely (the same approach Medplum uses in its
       # own test config).
       MEDPLUM_DEFAULT_RATE_LIMIT: "-1"
+      # Bots: vmcontext execution is disabled by default server-side
+      # (config vmContextBotsEnabled); the medplum_bot acceptance test
+      # deploys and $execute's a vmcontext bot.
+      MEDPLUM_VM_CONTEXT_BOTS_ENABLED: "true"
+      # Binary storage: unset in the "env" config source (server config/loader.ts
+      # only defaults it under loadTestConfig, which this stack does not use).
+      # Bot creation writes the deployed code as a Binary (fhir/operations/deploy.ts),
+      # so without this, Bot creation fails with "Binary storage not initialized".
+      # Container-local path is fine — this stack is ephemeral per test run.
+      MEDPLUM_BINARY_STORAGE: "file:/tmp/medplum-storage"

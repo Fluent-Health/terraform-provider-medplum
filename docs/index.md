@@ -135,4 +135,5 @@ provider "medplum" {
 - `fhir_path` (String) FHIR base path. Default /fhir/R4. Env: MEDPLUM_FHIR_PATH.
 - `medplum_version` (String) Medplum server version used to select the profile support matrix. Default 5.0.10. Env: MEDPLUM_VERSION.
 - `password` (String, Sensitive) Super-admin password. Env: MEDPLUM_PASSWORD.
+- `supported_bot_runtimes` (List of String) Bot runtimes this environment can execute; medplum_bot.runtime_version outside this set fails at plan time. Subset of vmcontext, fission, awslambda. Default ["vmcontext"].
 - `token_url` (String) OAuth token endpoint. Default base_url + /oauth2/token. Env: MEDPLUM_TOKEN_URL.

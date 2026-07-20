@@ -26,6 +26,7 @@ type fhirProfileModel struct {
 	StructureDefinition types.String `tfsdk:"structure_definition"`
 	Strict              types.Bool   `tfsdk:"strict"`
 	ID                  types.String `tfsdk:"id"`
+	Ref                 types.String `tfsdk:"ref"`
 	URL                 types.String `tfsdk:"url"`
 	VersionID           types.String `tfsdk:"version_id"`
 	LastUpdated         types.String `tfsdk:"last_updated"`
@@ -47,7 +48,12 @@ func (r *fhirProfileResource) Schema(_ context.Context, _ resource.SchemaRequest
 				Optional:            true,
 				MarkdownDescription: "When true, WARN findings and decorative-only profiles become plan errors.",
 			},
-			"id":           schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"id": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"ref": schema.StringAttribute{
+				Computed:            true,
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+				MarkdownDescription: "Full FHIR reference to this resource, e.g. StructureDefinition/abc. Use it wherever another resource takes a reference.",
+			},
 			"url":          schema.StringAttribute{Computed: true, MarkdownDescription: "StructureDefinition.url."},
 			"version_id":   schema.StringAttribute{Computed: true},
 			"last_updated": schema.StringAttribute{Computed: true},
@@ -253,6 +259,7 @@ func (r *fhirProfileResource) setComputed(m *fhirProfileModel, serverBody []byte
 	}
 	_ = json.Unmarshal(serverBody, &doc)
 	m.ID = types.StringValue(id)
+	m.Ref = refValue("StructureDefinition", id)
 	m.URL = types.StringValue(doc.URL)
 	m.VersionID = types.StringValue(ver)
 	m.LastUpdated = types.StringValue(upd)

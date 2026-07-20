@@ -54,6 +54,7 @@ resource "medplum_user" "admin_user" {
 ### Read-Only
 
 - `id` (String) The ID of this resource.
+- `ref` (String) Full FHIR reference to this resource, e.g. User/abc. Use it wherever another resource takes a reference.
 
 ## Import
 

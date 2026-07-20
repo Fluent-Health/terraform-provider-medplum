@@ -109,6 +109,9 @@ func TestAccessPolicy_fromFHIR_CompartmentAndInteraction(t *testing.T) {
 	if m.Compartment.ValueString() != "%profile" {
 		t.Errorf("Compartment: got %v", m.Compartment)
 	}
+	if m.Ref.ValueString() != "AccessPolicy/pol1" {
+		t.Errorf("Ref: got %v", m.Ref)
+	}
 	if len(m.Resource) != 1 {
 		t.Fatalf("expected 1 resource row, got %d", len(m.Resource))
 	}

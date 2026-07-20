@@ -28,6 +28,7 @@ type fhirResourceModel struct {
 	ResourceType types.String `tfsdk:"resource_type"`
 	Body         types.String `tfsdk:"body"`
 	ID           types.String `tfsdk:"id"`
+	Ref          types.String `tfsdk:"ref"`
 	VersionID    types.String `tfsdk:"version_id"`
 	LastUpdated  types.String `tfsdk:"last_updated"`
 	Validation   types.String `tfsdk:"validation"`
@@ -52,6 +53,11 @@ func (r *fhirResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 				PlanModifiers:       []planmodifier.String{semanticJSONBody()},
 			},
 			"id": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"ref": schema.StringAttribute{
+				Computed:            true,
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+				MarkdownDescription: "Full FHIR reference to this resource, e.g. ValueSet/abc. Use it wherever another resource takes a reference.",
+			},
 			// Hold the prior server-managed metadata only when the body is
 			// semantically unchanged, so an `import` (or any no-op plan) doesn't
 			// show version_id/last_updated flipping to "(known after apply)" as a
@@ -183,6 +189,7 @@ func (r *fhirResource) Create(ctx context.Context, req resource.CreateRequest, r
 		return
 	}
 	m.ID = types.StringValue(id)
+	m.Ref = refValue(m.ResourceType.ValueString(), id)
 	m.VersionID = types.StringValue(ver)
 	m.LastUpdated = types.StringValue(upd)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &m)...)
@@ -231,6 +238,7 @@ func (r *fhirResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 		return
 	}
 	m.ID = types.StringValue(id)
+	m.Ref = refValue(m.ResourceType.ValueString(), id)
 	m.VersionID = types.StringValue(ver)
 	m.LastUpdated = types.StringValue(upd)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &m)...)
@@ -266,6 +274,7 @@ func (r *fhirResource) Update(ctx context.Context, req resource.UpdateRequest, r
 		return
 	}
 	plan.ID = types.StringValue(id)
+	plan.Ref = refValue(plan.ResourceType.ValueString(), id)
 	plan.VersionID = types.StringValue(ver)
 	plan.LastUpdated = types.StringValue(upd)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)

@@ -41,6 +41,7 @@ resource "medplum_project" "patient_portal" {
 ### Read-Only
 
 - `id` (String) The ID of this resource.
+- `ref` (String) Full FHIR reference to this resource, e.g. Project/abc. Use it wherever another resource takes a reference.
 
 ## Import
 

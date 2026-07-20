@@ -85,6 +85,9 @@ func TestClientApplication_fromFHIR_NilIdentityProvider(t *testing.T) {
 	if m.IdentityProvider != nil {
 		t.Errorf("expected nil IdentityProvider when server omits it")
 	}
+	if m.Ref.ValueString() != "ClientApplication/abc" {
+		t.Errorf("Ref: got %v", m.Ref)
+	}
 }
 
 func TestClientApplication_fromFHIR_IdentityProvider(t *testing.T) {

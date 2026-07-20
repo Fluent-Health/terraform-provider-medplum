@@ -50,3 +50,18 @@ func (c *Client) SetPassword(ctx context.Context, projectID, email, password str
 	_, err = c.do(ctx, http.MethodPost, url, body)
 	return err
 }
+
+// AdminCreateBot creates a Bot plus its ProjectMembership via the project-admin
+// endpoint (POST /admin/projects/{id}/bot). body is the plain-JSON
+// BotInitParameters payload (name, description, runtimeVersion,
+// accessPolicy: {reference}), NOT FHIR Parameters; the response is the created
+// Bot resource. NOTE: the server creates the bot in the AUTHENTICATED SESSION's
+// project — the projectID URL segment is only permission-checked — so pass the
+// session project id (see CurrentProjectID).
+func (c *Client) AdminCreateBot(ctx context.Context, projectID string, body []byte) ([]byte, error) {
+	if projectID == "" {
+		return nil, fmt.Errorf("AdminCreateBot: projectID is required")
+	}
+	url := c.baseURL + fmt.Sprintf("/admin/projects/%s/bot", projectID)
+	return c.do(ctx, http.MethodPost, url, body)
+}

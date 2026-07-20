@@ -2,7 +2,10 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"slices"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -19,6 +22,9 @@ type providerData struct {
 	Client         *client.Client
 	Validator      *fhirschema.Validator
 	MedplumVersion string
+	// SupportedBotRuntimes gates medplum_bot.runtime_version at plan time.
+	// Never empty; defaults to ["vmcontext"].
+	SupportedBotRuntimes []string
 }
 
 func New(version string) func() provider.Provider {
@@ -30,15 +36,16 @@ type medplumProvider struct {
 }
 
 type medplumProviderModel struct {
-	BaseURL        types.String `tfsdk:"base_url"`
-	FHIRPath       types.String `tfsdk:"fhir_path"`
-	TokenURL       types.String `tfsdk:"token_url"`
-	ClientID       types.String `tfsdk:"client_id"`
-	ClientSecret   types.String `tfsdk:"client_secret"`
-	AccessToken    types.String `tfsdk:"access_token"`
-	Email          types.String `tfsdk:"email"`
-	Password       types.String `tfsdk:"password"`
-	MedplumVersion types.String `tfsdk:"medplum_version"`
+	BaseURL              types.String `tfsdk:"base_url"`
+	FHIRPath             types.String `tfsdk:"fhir_path"`
+	TokenURL             types.String `tfsdk:"token_url"`
+	ClientID             types.String `tfsdk:"client_id"`
+	ClientSecret         types.String `tfsdk:"client_secret"`
+	AccessToken          types.String `tfsdk:"access_token"`
+	Email                types.String `tfsdk:"email"`
+	Password             types.String `tfsdk:"password"`
+	MedplumVersion       types.String `tfsdk:"medplum_version"`
+	SupportedBotRuntimes types.List   `tfsdk:"supported_bot_runtimes"`
 }
 
 func (p *medplumProvider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -59,6 +66,11 @@ func (p *medplumProvider) Schema(_ context.Context, _ provider.SchemaRequest, re
 			"email":           schema.StringAttribute{Optional: true, MarkdownDescription: "Super-admin email. Env: MEDPLUM_EMAIL."},
 			"password":        schema.StringAttribute{Optional: true, Sensitive: true, MarkdownDescription: "Super-admin password. Env: MEDPLUM_PASSWORD."},
 			"medplum_version": schema.StringAttribute{Optional: true, MarkdownDescription: "Medplum server version used to select the profile support matrix. Default 5.0.10. Env: MEDPLUM_VERSION."},
+			"supported_bot_runtimes": schema.ListAttribute{
+				Optional:            true,
+				ElementType:         types.StringType,
+				MarkdownDescription: "Bot runtimes this environment can execute; medplum_bot.runtime_version outside this set fails at plan time. Subset of vmcontext, fission, awslambda. Default [\"vmcontext\"].",
+			},
 		},
 	}
 }
@@ -104,9 +116,32 @@ func (p *medplumProvider) Configure(ctx context.Context, req provider.ConfigureR
 		medplumVersion = "5.0.10"
 	}
 
-	data := &providerData{Client: c, Validator: v, MedplumVersion: medplumVersion}
+	supportedRuntimes := listToStrings(m.SupportedBotRuntimes)
+	if len(supportedRuntimes) == 0 {
+		supportedRuntimes = []string{"vmcontext"}
+	}
+	if err := validateBotRuntimes(supportedRuntimes); err != nil {
+		resp.Diagnostics.AddError("Invalid supported_bot_runtimes", err.Error())
+		return
+	}
+
+	data := &providerData{Client: c, Validator: v, MedplumVersion: medplumVersion, SupportedBotRuntimes: supportedRuntimes}
 	resp.ResourceData = data
 	resp.DataSourceData = data
+}
+
+// botRuntimes are the runtime_version values Medplum dispatches on
+// (bots/execute.ts). The provider default and the only one most self-hosted
+// environments support out of the box is vmcontext.
+var botRuntimes = []string{"vmcontext", "fission", "awslambda"}
+
+func validateBotRuntimes(supported []string) error {
+	for _, rt := range supported {
+		if !slices.Contains(botRuntimes, rt) {
+			return fmt.Errorf("unknown bot runtime %q: must be a subset of %s", rt, strings.Join(botRuntimes, ", "))
+		}
+	}
+	return nil
 }
 
 func (p *medplumProvider) Resources(_ context.Context) []func() resource.Resource {
@@ -119,6 +154,7 @@ func (p *medplumProvider) Resources(_ context.Context) []func() resource.Resourc
 		NewProjectResource,
 		NewFHIRProfileResource,
 		NewFHIRDataMigrationResource,
+		NewBotResource,
 	}
 }
 

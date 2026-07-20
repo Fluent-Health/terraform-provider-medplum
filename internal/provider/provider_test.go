@@ -15,3 +15,12 @@ var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServe
 func TestProvider_ImplementsInterface(t *testing.T) {
 	var _ = New("test")()
 }
+
+func TestValidateBotRuntimes(t *testing.T) {
+	if err := validateBotRuntimes([]string{"vmcontext", "fission"}); err != nil {
+		t.Fatalf("valid runtimes rejected: %v", err)
+	}
+	if err := validateBotRuntimes([]string{"vmcontext", "docker"}); err == nil {
+		t.Fatal("expected error for unknown runtime name")
+	}
+}

@@ -69,6 +69,7 @@ resource "medplum_fhir_profile" "active_patient" {
 
 - `id` (String) The ID of this resource.
 - `last_updated` (String)
+- `ref` (String) Full FHIR reference to this resource, e.g. StructureDefinition/abc. Use it wherever another resource takes a reference.
 - `url` (String) StructureDefinition.url.
 - `version_id` (String)
 

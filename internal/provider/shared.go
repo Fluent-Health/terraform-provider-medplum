@@ -8,6 +8,14 @@ import (
 // refObj wraps a FHIR reference string in a {"reference": "..."} map.
 func refObj(ref string) map[string]any { return map[string]any{"reference": ref} }
 
+// refValue builds the full FHIR reference string ("Type/id") for a resource.
+// Exposed on typed resources as the computed `ref` attribute so consumers can
+// write e.g. `access_policy = medplum_access_policy.x.ref` without string
+// interpolation.
+func refValue(resourceType, id string) types.String {
+	return types.StringValue(resourceType + "/" + id)
+}
+
 // strOrEmpty returns "" for null/unknown, else the string value.
 func strOrEmpty(s types.String) string {
 	if s.IsNull() || s.IsUnknown() {
