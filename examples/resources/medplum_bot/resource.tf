@@ -1,3 +1,12 @@
+# The access policy the bot runs under.
+resource "medplum_access_policy" "bot_policy" {
+  name = "bot-policy"
+  resource {
+    resource_type = "Patient"
+    readonly      = true
+  }
+}
+
 # A bot whose bundled code lives next to the Terraform module. Editing the
 # bundle and running `terraform apply` deploys the new code live.
 resource "medplum_bot" "subscription_handler" {
