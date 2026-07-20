@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
@@ -286,6 +287,126 @@ resource "medplum_bot" "test" {
 				ImportState:             true,
 				ImportStateVerify:       true,
 				ImportStateVerifyIgnore: []string{"code", "source_path"},
+			},
+		},
+	})
+}
+
+// checkSubscriptionFiresBot creates a QuestionnaireResponse directly against
+// the acc client (not through Terraform) and polls for the Observation the
+// subscription-triggered bot writes. This proves the canonical trigger path:
+// the server's subscription worker matches the rest-hook Subscription's
+// criteria against the newly created resource (server
+// packages/core/src/subscriptions/index.ts resourceMatchesSubscriptionCriteria
+// — a bare `criteria = "QuestionnaireResponse"` with no
+// subscription-supported-interaction extension matches any interaction,
+// including "create") and, because channel.endpoint starts with "Bot/"
+// (packages/server/src/workers/subscription.ts processSubscriptionResource,
+// `subscription.channel?.endpoint?.startsWith('Bot/')`), executes the bot via
+// execBot rather than sending an HTTP rest-hook — reading the endpoint as a
+// FHIR reference string (`systemRepo.readReference({reference: url})`), not a
+// full URL. Execution is async via the Redis-backed subscription queue, so
+// this polls rather than asserting immediately.
+func checkSubscriptionFiresBot(c *client.Client) resource.TestCheckFunc {
+	return func(_ *terraform.State) error {
+		ctx := context.Background()
+		qrOut, err := c.FHIRCreate(ctx, "QuestionnaireResponse", []byte(`{"resourceType":"QuestionnaireResponse","status":"completed"}`))
+		if err != nil {
+			return fmt.Errorf("create QuestionnaireResponse: %w", err)
+		}
+		var qr struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(qrOut, &qr); err != nil || qr.ID == "" {
+			return fmt.Errorf("create QuestionnaireResponse: no id in response %s", qrOut)
+		}
+
+		query := fmt.Sprintf("identifier=https://example.com/tf-acc-bot-e2e|%s", qr.ID)
+		deadline := time.Now().Add(60 * time.Second)
+		var last []byte
+		for {
+			out, err := c.FHIRSearch(ctx, "Observation", query)
+			if err != nil {
+				return fmt.Errorf("search Observation: %w", err)
+			}
+			last = out
+			var bundle struct {
+				Entry []json.RawMessage `json:"entry"`
+			}
+			if err := json.Unmarshal(out, &bundle); err == nil && len(bundle.Entry) > 0 {
+				return nil
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("bot-authored Observation for QuestionnaireResponse/%s never appeared after 60s; last search response: %s", qr.ID, last)
+			}
+			time.Sleep(2 * time.Second)
+		}
+	}
+}
+
+func TestAccBot_subscriptionEndToEnd(t *testing.T) {
+	if os.Getenv("TF_ACC") == "" {
+		t.Skip("TF_ACC not set")
+	}
+	c := newAccClient(t)
+	ensureBotsFeature(t, c)
+
+	suffix := acctest.RandStringFromCharSet(8, acctest.CharSetAlphaNum)
+	// vmcontext is CommonJS. The triggering QuestionnaireResponse arrives as
+	// event.input: server execBot (workers/subscription.ts) passes the resource
+	// itself as the bot's input body for create/update interactions (only
+	// "delete" wraps it as {deletedResource: resource}), and vmcontext.ts hands
+	// that object straight through as event.input for FHIR_JSON content — no
+	// JSON.parse needed in the bot.
+	botCode := `exports.handler = async (medplum, event) => {
+  const qr = event.input;
+  await medplum.createResource({
+    resourceType: "Observation",
+    status: "final",
+    code: { text: "tf-acc-bot-e2e" },
+    identifier: [{ system: "https://example.com/tf-acc-bot-e2e", value: qr.id }]
+  });
+  return true;
+};`
+	// The JS body is built separately and injected with %q — it contains double
+	// quotes, which cannot be nested in an HCL string.
+	cfg := fmt.Sprintf(`
+resource "medplum_bot" "e2e" {
+  name = "tf-acc-bot-e2e-%s"
+  code = %q
+}
+
+resource "medplum_fhir_resource" "qr_hook" {
+  resource_type = "Subscription"
+  body = jsonencode({
+    resourceType = "Subscription"
+    status       = "active"
+    reason       = "bot e2e test"
+    criteria     = "QuestionnaireResponse"
+    channel = {
+      type = "rest-hook"
+      # Deliberately using medplum_bot.e2e.ref (a second consumer position for
+      # the "ref" attribute, "Bot/<id>") rather than a hand-built string: the
+      # server requires channel.endpoint to be exactly a "Bot/{id}" reference
+      # string for bot-backed subscriptions (subscription.ts, see comment
+      # above checkSubscriptionFiresBot), which is precisely what ref yields.
+      endpoint = medplum_bot.e2e.ref
+    }
+  })
+}`, suffix, botCode)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: cfg,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("medplum_bot.e2e", "id"),
+					resource.TestCheckResourceAttrSet("medplum_bot.e2e", "ref"),
+					resource.TestCheckResourceAttrSet("medplum_fhir_resource.qr_hook", "id"),
+					checkSubscriptionFiresBot(c),
+				),
 			},
 		},
 	})
