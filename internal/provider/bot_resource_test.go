@@ -174,14 +174,6 @@ func TestBot_fromDoc(t *testing.T) {
 	}
 }
 
-func TestBot_ImplementsResourceInterfaces(t *testing.T) {
-	var (
-		_ = NewBotResource()
-	)
-	// Compile-time assertions live in bot_resource.go; this just ensures the
-	// constructor is wired.
-}
-
 // ensureBotsFeature enables the "bots" feature on the session project
 // (Project.features gate, server bots/utils.ts isBotEnabled).
 func ensureBotsFeature(t *testing.T, c *client.Client) {

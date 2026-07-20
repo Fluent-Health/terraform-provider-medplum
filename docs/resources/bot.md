@@ -65,7 +65,7 @@ resource "medplum_bot" "ping" {
 ### Read-Only
 
 - `id` (String) The ID of this resource.
-- `membership_id` (String)
+- `membership_id` (String) Id of the bot's ProjectMembership (created by the server together with the bot; access_policy lives here).
 - `project_id` (String) Project the bot lives in. Always the provider session's project: Medplum creates bots in the authenticated project.
 - `source_hash` (String) SHA-256 of the deployed bundle. Changes when the local bundle or the server-side deployed code changes, driving re-deploys.
 
@@ -75,7 +75,8 @@ Import is supported using the following syntax:
 
 ```shell
 # Import by Bot id. The membership is discovered automatically and source_hash
-# is recomputed from the deployed code, so a matching local bundle yields a
-# clean no-op plan.
+# is recomputed from the deployed code. The first plan after import shows an
+# in-place update recording your code/source_path in state; a matching bundle
+# is NOT re-deployed.
 terraform import medplum_bot.subscription_handler 00000000-0000-0000-0000-000000000000
 ```

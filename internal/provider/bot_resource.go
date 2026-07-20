@@ -204,7 +204,10 @@ func (r *botResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *
 				Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 				MarkdownDescription: "Project the bot lives in. Always the provider session's project: Medplum creates bots in the authenticated project.",
 			},
-			"membership_id": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"membership_id": schema.StringAttribute{
+				Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+				MarkdownDescription: "Id of the bot's ProjectMembership (created by the server together with the bot; access_policy lives here).",
+			},
 		},
 	}
 }
@@ -316,12 +319,33 @@ func (r *botResource) Create(ctx context.Context, req resource.CreateRequest, re
 	plan.ID = types.StringValue(created.ID)
 	plan.ProjectID = types.StringValue(projectID)
 
+	// The server creates the ProjectMembership together with the Bot, so look
+	// it up now — before the taint snapshot below — instead of at the end of
+	// Create. That way, if a later step (e.g. $deploy) fails, the tainted
+	// resource still carries membership_id and destroy can clean up the
+	// membership instead of orphaning it. A lookup failure here must not
+	// abort before the snapshot: record it and surface it right after.
+	mid, midErr := r.findMembershipID(ctx, created.ID)
+	if midErr == nil && mid != "" {
+		plan.MembershipID = types.StringValue(mid)
+	} else {
+		plan.MembershipID = types.StringNull()
+	}
+
 	// Track the resource as soon as it exists so a failure below leaves it
 	// managed (tainted) instead of orphaned.
 	plan.SourceHash = types.StringNull()
-	plan.MembershipID = types.StringNull()
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if midErr != nil {
+		resp.Diagnostics.AddError("Membership lookup failed", midErr.Error())
+		return
+	}
+	if mid == "" {
+		resp.Diagnostics.AddError("Membership lookup failed", "server did not create a ProjectMembership for the bot")
 		return
 	}
 
@@ -339,17 +363,6 @@ func (r *botResource) Create(ctx context.Context, req resource.CreateRequest, re
 		return
 	}
 	plan.SourceHash = types.StringValue(sourceHashOf(code))
-
-	mid, err := r.findMembershipID(ctx, created.ID)
-	if err != nil {
-		resp.Diagnostics.AddError("Membership lookup failed", err.Error())
-		return
-	}
-	if mid == "" {
-		resp.Diagnostics.AddError("Membership lookup failed", "server did not create a ProjectMembership for the bot")
-		return
-	}
-	plan.MembershipID = types.StringValue(mid)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -380,12 +393,17 @@ func (r *botResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	// up as drift and get reverted on the next apply.
 	if doc.ExecutableCode.URL == "" {
 		m.SourceHash = types.StringNull()
-	} else {
-		codeBytes, err := r.fetchDeployedCode(ctx, doc.ExecutableCode.URL)
-		if err != nil {
+	} else if codeBytes, err := r.fetchDeployedCode(ctx, doc.ExecutableCode.URL); err != nil {
+		if !client.IsNotFound(err) {
 			resp.Diagnostics.AddError("Reading deployed bot code failed", err.Error())
 			return
 		}
+		// The deployed Binary was deleted out-of-band; treat it as drift
+		// (same as an empty executableCode.url) rather than a hard error, so
+		// it gets repaired by a redeploy on the next apply instead of wedging
+		// every refresh.
+		m.SourceHash = types.StringNull()
+	} else {
 		m.SourceHash = types.StringValue(sourceHashOf(string(codeBytes)))
 	}
 
