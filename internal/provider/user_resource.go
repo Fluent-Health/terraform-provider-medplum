@@ -21,6 +21,7 @@ type userResource struct{ data *providerData }
 
 type userModel struct {
 	ID         types.String `tfsdk:"id"`
+	Ref        types.String `tfsdk:"ref"`
 	FirstName  types.String `tfsdk:"first_name"`
 	LastName   types.String `tfsdk:"last_name"`
 	Email      types.String `tfsdk:"email"`
@@ -38,7 +39,12 @@ func (r *userResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "A Medplum User. Project-scoped when project_id is set (else server-scoped).",
 		Attributes: map[string]schema.Attribute{
-			"id":          schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"id": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"ref": schema.StringAttribute{
+				Computed:            true,
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+				MarkdownDescription: "Full FHIR reference to this resource, e.g. User/abc. Use it wherever another resource takes a reference.",
+			},
 			"first_name":  schema.StringAttribute{Required: true},
 			"last_name":   schema.StringAttribute{Required: true},
 			"email":       schema.StringAttribute{Optional: true},
@@ -117,6 +123,7 @@ func (m *userModel) fromFHIR(body []byte) error {
 		return err
 	}
 	m.ID = types.StringValue(doc.ID)
+	m.Ref = refValue("User", doc.ID)
 	m.FirstName = types.StringValue(doc.FirstName)
 	m.LastName = types.StringValue(doc.LastName)
 	m.Email = optString(doc.Email)

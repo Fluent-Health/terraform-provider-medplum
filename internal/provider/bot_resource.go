@@ -26,6 +26,7 @@ import (
 
 type botModel struct {
 	ID             types.String `tfsdk:"id"`
+	Ref            types.String `tfsdk:"ref"`
 	Name           types.String `tfsdk:"name"`
 	Description    types.String `tfsdk:"description"`
 	Code           types.String `tfsdk:"code"`
@@ -146,6 +147,7 @@ type botDoc struct {
 // AccessPolicy and MembershipID are managed by the callers.
 func (m *botModel) fromDoc(doc botDoc) {
 	m.ID = types.StringValue(doc.ID)
+	m.Ref = refValue("Bot", doc.ID)
 	m.Name = types.StringValue(doc.Name)
 	m.Description = optString(doc.Description)
 	m.RuntimeVersion = optString(doc.RuntimeVersion)
@@ -174,7 +176,12 @@ func (r *botResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "A Medplum Bot with its full lifecycle: creation (Bot + ProjectMembership via the project-admin endpoint), live code deployment ($deploy, no server restart), and per-bot runtime selection. The bundled code never enters Terraform state; only its SHA-256 (source_hash) is stored.",
 		Attributes: map[string]schema.Attribute{
-			"id":          schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"id": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"ref": schema.StringAttribute{
+				Computed:            true,
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+				MarkdownDescription: "Full FHIR reference to this resource, e.g. Bot/abc. Use it wherever another resource takes a reference.",
+			},
 			"name":        schema.StringAttribute{Required: true},
 			"description": schema.StringAttribute{Optional: true},
 			"code": schema.StringAttribute{
@@ -317,6 +324,7 @@ func (r *botResource) Create(ctx context.Context, req resource.CreateRequest, re
 		return
 	}
 	plan.ID = types.StringValue(created.ID)
+	plan.Ref = refValue("Bot", created.ID)
 	plan.ProjectID = types.StringValue(projectID)
 
 	// The server creates the ProjectMembership together with the Bot, so look
@@ -455,6 +463,7 @@ func (r *botResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	}
 	id := state.ID.ValueString()
 	plan.ID = state.ID
+	plan.Ref = state.Ref
 	plan.ProjectID = state.ProjectID
 	plan.MembershipID = state.MembershipID
 

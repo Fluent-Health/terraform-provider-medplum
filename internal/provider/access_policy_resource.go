@@ -21,6 +21,7 @@ type accessPolicyResource struct{ data *providerData }
 
 type accessPolicyModel struct {
 	ID           types.String              `tfsdk:"id"`
+	Ref          types.String              `tfsdk:"ref"`
 	Name         types.String              `tfsdk:"name"`
 	Compartment  types.String              `tfsdk:"compartment"`
 	Resource     []accessPolicyResourceRow `tfsdk:"resource"`
@@ -51,7 +52,12 @@ func (r *accessPolicyResource) Schema(_ context.Context, _ resource.SchemaReques
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "A Medplum AccessPolicy.",
 		Attributes: map[string]schema.Attribute{
-			"id":          schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"id": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"ref": schema.StringAttribute{
+				Computed:            true,
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+				MarkdownDescription: "Full FHIR reference to this resource, e.g. AccessPolicy/abc. Use it wherever another resource takes a reference.",
+			},
 			"name":        schema.StringAttribute{Required: true},
 			"compartment": schema.StringAttribute{Optional: true, MarkdownDescription: "Top-level compartment reference, e.g. %profile."},
 		},
@@ -175,6 +181,7 @@ func (m *accessPolicyModel) fromFHIR(body []byte) error {
 		return err
 	}
 	m.ID = types.StringValue(doc.ID)
+	m.Ref = refValue("AccessPolicy", doc.ID)
 	m.Name = types.StringValue(doc.Name)
 	m.Compartment = optString(doc.Compartment.Reference)
 	rows := make([]accessPolicyResourceRow, 0, len(doc.Resource))

@@ -76,6 +76,7 @@ resource "medplum_access_policy" "practitioner_full" {
 ### Read-Only
 
 - `id` (String) The ID of this resource.
+- `ref` (String) Full FHIR reference to this resource, e.g. AccessPolicy/abc. Use it wherever another resource takes a reference.
 
 <a id="nestedblock--ip_access_rule"></a>
 ### Nested Schema for `ip_access_rule`

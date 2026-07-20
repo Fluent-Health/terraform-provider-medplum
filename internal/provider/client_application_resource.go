@@ -23,6 +23,7 @@ type clientApplicationResource struct{ data *providerData }
 
 type clientApplicationModel struct {
 	ID               types.String           `tfsdk:"id"`
+	Ref              types.String           `tfsdk:"ref"`
 	Name             types.String           `tfsdk:"name"`
 	Description      types.String           `tfsdk:"description"`
 	RedirectURI      types.String           `tfsdk:"redirect_uri"`
@@ -47,7 +48,12 @@ func (r *clientApplicationResource) Schema(_ context.Context, _ resource.SchemaR
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "A Medplum ClientApplication. Access is granted separately via medplum_project_membership (accessPolicy lives on the membership).",
 		Attributes: map[string]schema.Attribute{
-			"id":           schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"id": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"ref": schema.StringAttribute{
+				Computed:            true,
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+				MarkdownDescription: "Full FHIR reference to this resource, e.g. ClientApplication/abc. Use it wherever another resource takes a reference.",
+			},
 			"name":         schema.StringAttribute{Required: true},
 			"description":  schema.StringAttribute{Optional: true},
 			"redirect_uri": schema.StringAttribute{Optional: true},
@@ -157,6 +163,7 @@ func (m *clientApplicationModel) fromFHIR(body []byte) error {
 		return err
 	}
 	m.ID = types.StringValue(doc.ID)
+	m.Ref = refValue("ClientApplication", doc.ID)
 	m.Name = types.StringValue(doc.Name)
 	m.Description = optString(doc.Description)
 	m.RedirectURI = optString(doc.RedirectURI)

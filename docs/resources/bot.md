@@ -34,7 +34,7 @@ resource "medplum_bot" "subscription_handler" {
   description   = "Processes Patient change notifications."
   source_path   = "${path.module}/dist/subscription-handler.js"
   timeout       = 30
-  access_policy = "AccessPolicy/${medplum_access_policy.bot_policy.id}"
+  access_policy = medplum_access_policy.bot_policy.ref
 }
 
 # A trivial inline bot. Prefer source_path for anything real: inline code is
@@ -67,6 +67,7 @@ resource "medplum_bot" "ping" {
 - `id` (String) The ID of this resource.
 - `membership_id` (String) Id of the bot's ProjectMembership (created by the server together with the bot; access_policy lives here).
 - `project_id` (String) Project the bot lives in. Always the provider session's project: Medplum creates bots in the authenticated project.
+- `ref` (String) Full FHIR reference to this resource, e.g. Bot/abc. Use it wherever another resource takes a reference.
 - `source_hash` (String) SHA-256 of the deployed bundle. Changes when the local bundle or the server-side deployed code changes, driving re-deploys.
 
 ## Import

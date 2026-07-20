@@ -14,7 +14,7 @@ resource "medplum_bot" "subscription_handler" {
   description   = "Processes Patient change notifications."
   source_path   = "${path.module}/dist/subscription-handler.js"
   timeout       = 30
-  access_policy = "AccessPolicy/${medplum_access_policy.bot_policy.id}"
+  access_policy = medplum_access_policy.bot_policy.ref
 }
 
 # A trivial inline bot. Prefer source_path for anything real: inline code is

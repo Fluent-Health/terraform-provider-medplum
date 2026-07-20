@@ -3,6 +3,7 @@
 ### Features
 
 * **medplum_bot:** new resource managing the full bot lifecycle: creation via the project-admin endpoint (Bot + ProjectMembership together, with optional `access_policy` on the membership), live code deployment through `$deploy` on create and whenever the bundle changes (no server restart), `timeout`/`run_as_user`, and import. Bot code is supplied inline (`code`) or by file (`source_path`, recommended — the bundle stays out of Terraform state; only its SHA-256 `source_hash` is stored). Reads recompute `source_hash` from the deployed Binary, so out-of-band deploys surface as drift and are reverted on apply.
+* **all typed resources:** new computed `ref` attribute carrying the full FHIR reference (`AccessPolicy/abc`, `Bot/xyz`, ...), so cross-resource wiring reads `access_policy = medplum_access_policy.x.ref` instead of manual string interpolation.
 * **provider:** new `supported_bot_runtimes` setting (default `["vmcontext"]`). A `medplum_bot.runtime_version` outside the set — e.g. `"fission"` on a cluster without Fission — fails at plan time instead of at first bot execution.
 
 # v0.3.2 (2026-07-16)

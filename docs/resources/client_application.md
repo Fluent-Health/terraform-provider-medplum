@@ -54,6 +54,7 @@ resource "medplum_client_application" "sso_app" {
 ### Read-Only
 
 - `id` (String) The ID of this resource.
+- `ref` (String) Full FHIR reference to this resource, e.g. ClientApplication/abc. Use it wherever another resource takes a reference.
 
 <a id="nestedblock--identity_provider"></a>
 ### Nested Schema for `identity_provider`

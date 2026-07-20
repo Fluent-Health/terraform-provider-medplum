@@ -21,6 +21,7 @@ type projectResource struct{ data *providerData }
 
 type projectModel struct {
 	ID          types.String `tfsdk:"id"`
+	Ref         types.String `tfsdk:"ref"`
 	Name        types.String `tfsdk:"name"`
 	Description types.String `tfsdk:"description"`
 	Features    types.List   `tfsdk:"features"`
@@ -34,7 +35,12 @@ func (r *projectResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "A Medplum Project. Creation requires super-admin credentials.",
 		Attributes: map[string]schema.Attribute{
-			"id":          schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"id": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"ref": schema.StringAttribute{
+				Computed:            true,
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+				MarkdownDescription: "Full FHIR reference to this resource, e.g. Project/abc. Use it wherever another resource takes a reference.",
+			},
 			"name":        schema.StringAttribute{Required: true},
 			"description": schema.StringAttribute{Optional: true},
 			"features":    schema.ListAttribute{Optional: true, ElementType: types.StringType, MarkdownDescription: "Project features. Omit when none."},
@@ -76,6 +82,7 @@ func (m *projectModel) fromFHIR(body []byte) error {
 		return err
 	}
 	m.ID = types.StringValue(doc.ID)
+	m.Ref = refValue("Project", doc.ID)
 	m.Name = types.StringValue(doc.Name)
 	m.Description = optString(doc.Description)
 	m.Features = stringsToList(doc.Features)
@@ -156,6 +163,7 @@ func (r *projectResource) Create(ctx context.Context, req resource.CreateRequest
 		}
 	} else {
 		m.ID = types.StringValue(id)
+		m.Ref = refValue("Project", id)
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &m)...)
 }

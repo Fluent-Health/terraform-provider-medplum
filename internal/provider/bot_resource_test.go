@@ -154,6 +154,9 @@ func TestBot_fromDoc(t *testing.T) {
 	if m.ID.ValueString() != "bot-1" || m.Name.ValueString() != "my-bot" {
 		t.Fatalf("identity: %v", m)
 	}
+	if m.Ref.ValueString() != "Bot/bot-1" {
+		t.Fatalf("ref: %v", m.Ref)
+	}
 	if m.RuntimeVersion.ValueString() != "vmcontext" {
 		t.Fatalf("runtime: %v", m.RuntimeVersion)
 	}
@@ -252,7 +255,7 @@ resource "medplum_bot" "test" {
   description   = "acc test bot"
   code          = %q
   timeout       = 30
-  access_policy = "AccessPolicy/${medplum_access_policy.bot.id}"
+  access_policy = medplum_access_policy.bot.ref
 }`, suffix, suffix, botCode)
 	}
 	resource.Test(t, resource.TestCase{
@@ -263,6 +266,7 @@ resource "medplum_bot" "test" {
 				Config: cfg("hello-v1"),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("medplum_bot.test", "id"),
+					resource.TestCheckResourceAttrSet("medplum_bot.test", "ref"),
 					resource.TestCheckResourceAttrSet("medplum_bot.test", "membership_id"),
 					resource.TestCheckResourceAttrSet("medplum_bot.test", "project_id"),
 					resource.TestCheckResourceAttrSet("medplum_bot.test", "source_hash"),

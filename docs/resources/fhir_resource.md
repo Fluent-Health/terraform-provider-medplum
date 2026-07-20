@@ -60,6 +60,7 @@ resource "medplum_fhir_resource" "blood_types" {
 
 - `id` (String) The ID of this resource.
 - `last_updated` (String)
+- `ref` (String) Full FHIR reference to this resource, e.g. ValueSet/abc. Use it wherever another resource takes a reference.
 - `version_id` (String)
 
 ## Import
