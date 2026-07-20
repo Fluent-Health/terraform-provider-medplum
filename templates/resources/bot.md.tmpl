@@ -1,0 +1,32 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.RenderedProviderName}}"
+subcategory: "Automation"
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+{{ .Description | trimspace }}
+
+A bot is Medplum's serverless automation primitive: bundled JavaScript triggered by Subscriptions, cron, or direct `$execute` calls. This resource manages the whole lifecycle — the Bot, its ProjectMembership (bots cannot act without one), and the deployed code. Applying a code change pushes the new bundle live to the running server; no restart is involved.
+
+Bot code must be a single bundled JavaScript file in CommonJS shape (`exports.handler = async (medplum, event) => ...`). Multi-file TypeScript projects should be bundled with esbuild (Medplum's own workflow) and referenced via `source_path`, which keeps the bundle out of Terraform state — only its SHA-256 is stored.
+
+The bot's runtime (`runtime_version`) is validated at plan time against the provider's `supported_bot_runtimes`, so pointing a bot at a runtime the environment cannot execute fails before anything is created.
+
+{{ if .HasExample -}}
+## Example Usage
+
+{{tffile .ExampleFile }}
+{{- end }}
+
+{{ .SchemaMarkdown | trimspace }}
+
+{{ if .HasImport -}}
+## Import
+
+Import is supported using the following syntax:
+
+{{codefile "shell" .ImportFile}}
+{{- end }}
