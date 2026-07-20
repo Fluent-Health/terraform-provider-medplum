@@ -131,3 +131,39 @@ func TestIsNotFound_TreatsGoneAsNotFound(t *testing.T) {
 		t.Fatal("400 must not be not-found")
 	}
 }
+
+func TestFHIRReadBinaryContent(t *testing.T) {
+	const code = `exports.handler = async () => "hello";`
+	c, srv := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/fhir/R4/Binary/bin-1" {
+			http.Error(w, "bad path", http.StatusBadRequest)
+			return
+		}
+		if got := r.Header.Get("Accept"); got != "application/octet-stream" {
+			http.Error(w, "wrong accept: "+got, http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/javascript")
+		_, _ = w.Write([]byte(code))
+	})
+	defer srv.Close()
+
+	out, err := c.FHIRReadBinaryContent(context.Background(), "bin-1")
+	if err != nil {
+		t.Fatalf("FHIRReadBinaryContent: %v", err)
+	}
+	if string(out) != code {
+		t.Fatalf("got %q, want %q", out, code)
+	}
+}
+
+func TestFHIRReadBinaryContent_Error(t *testing.T) {
+	c, srv := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"resourceType":"OperationOutcome","issue":[{"severity":"error","diagnostics":"Not found"}]}`, http.StatusNotFound)
+	})
+	defer srv.Close()
+	_, err := c.FHIRReadBinaryContent(context.Background(), "missing")
+	if !IsNotFound(err) {
+		t.Fatalf("expected IsNotFound error, got %v", err)
+	}
+}

@@ -165,3 +165,32 @@ func (c *Client) FHIRSearch(ctx context.Context, resourceType, rawQuery string) 
 func (c *Client) FHIRBundle(ctx context.Context, bundle []byte) ([]byte, error) {
 	return c.do(ctx, http.MethodPost, c.baseURL+c.fhirPath, bundle)
 }
+
+// FHIRReadBinaryContent GETs the raw stored content of a Binary resource.
+// Requesting a non-FHIR Accept type makes Medplum stream the binary content
+// itself instead of the FHIR JSON envelope. The payload is arbitrary bytes
+// (e.g. deployed bot code), so no OperationOutcome sniffing is applied to
+// success responses.
+func (c *Client) FHIRReadBinaryContent(ctx context.Context, id string) ([]byte, error) {
+	if id == "" {
+		return nil, fmt.Errorf("FHIRReadBinaryContent: id is required")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.fhirURL("Binary", id), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/octet-stream")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response body: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return nil, &APIError{StatusCode: resp.StatusCode, Diagnostics: parseOutcome(body), Body: string(body)}
+	}
+	return body, nil
+}

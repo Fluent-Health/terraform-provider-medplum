@@ -72,3 +72,38 @@ func TestOperation_PostsToOperationPath(t *testing.T) {
 		t.Fatalf("Operation: %v", err)
 	}
 }
+
+func TestAdminCreateBot(t *testing.T) {
+	var gotBody map[string]any
+	c, srv := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/admin/projects/proj1/bot" {
+			http.Error(w, "bad path", http.StatusBadRequest)
+			return
+		}
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"resourceType":"Bot","id":"bot-1","meta":{"project":"proj1"}}`))
+	})
+	defer srv.Close()
+
+	out, err := c.AdminCreateBot(context.Background(), "proj1", []byte(`{"name":"my-bot","runtimeVersion":"vmcontext"}`))
+	if err != nil {
+		t.Fatalf("AdminCreateBot: %v", err)
+	}
+	if gotBody["name"] != "my-bot" || gotBody["runtimeVersion"] != "vmcontext" {
+		t.Fatalf("unexpected request body: %v", gotBody)
+	}
+	if !strings.Contains(string(out), `"id":"bot-1"`) {
+		t.Fatalf("unexpected response: %s", out)
+	}
+}
+
+func TestAdminCreateBot_RequiresProjectID(t *testing.T) {
+	c, srv := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	defer srv.Close()
+	if _, err := c.AdminCreateBot(context.Background(), "", []byte(`{}`)); err == nil {
+		t.Fatal("expected error for empty projectID")
+	}
+}
