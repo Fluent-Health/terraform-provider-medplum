@@ -1,12 +1,21 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
+
+	"github.com/Fluent-Health/terraform-provider-medplum/internal/client"
 )
 
 func TestSourceHashOf(t *testing.T) {
@@ -171,4 +180,140 @@ func TestBot_ImplementsResourceInterfaces(t *testing.T) {
 	)
 	// Compile-time assertions live in bot_resource.go; this just ensures the
 	// constructor is wired.
+}
+
+// ensureBotsFeature enables the "bots" feature on the session project
+// (Project.features gate, server bots/utils.ts isBotEnabled).
+func ensureBotsFeature(t *testing.T, c *client.Client) {
+	t.Helper()
+	ctx := context.Background()
+	pid, err := c.CurrentProjectID(ctx)
+	if err != nil {
+		t.Fatalf("current project: %v", err)
+	}
+	out, err := c.FHIRRead(ctx, "Project", pid)
+	if err != nil {
+		t.Fatalf("read project: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("decode project: %v", err)
+	}
+	feats, _ := doc["features"].([]any)
+	for _, f := range feats {
+		if f == "bots" {
+			return
+		}
+	}
+	doc["features"] = append(feats, "bots")
+	body, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.FHIRUpdate(ctx, "Project", pid, body); err != nil {
+		t.Fatalf("enable bots feature: %v", err)
+	}
+}
+
+// checkBotExecute runs POST Bot/{id}/$execute and asserts the deployed code's
+// return value — proving the bundle is actually live, not just attached.
+func checkBotExecute(c *client.Client, resourceName, want string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		rs, ok := s.RootModule().Resources[resourceName]
+		if !ok {
+			return fmt.Errorf("resource %s not found in state", resourceName)
+		}
+		out, err := c.Operation(context.Background(), "Bot", rs.Primary.ID, "$execute", []byte(`{}`))
+		if err != nil {
+			return fmt.Errorf("$execute: %w", err)
+		}
+		if !strings.Contains(string(out), want) {
+			return fmt.Errorf("$execute returned %q, want it to contain %q", out, want)
+		}
+		return nil
+	}
+}
+
+func TestAccBot_lifecycle(t *testing.T) {
+	if os.Getenv("TF_ACC") == "" {
+		t.Skip("TF_ACC not set")
+	}
+	c := newAccClient(t)
+	ensureBotsFeature(t, c)
+
+	suffix := acctest.RandStringFromCharSet(8, acctest.CharSetAlphaNum)
+	cfg := func(ret string) string {
+		// Build the JS separately and quote the whole thing with %q — the code
+		// contains double quotes, which cannot be nested in an HCL string.
+		botCode := fmt.Sprintf(`exports.handler = async () => %q;`, ret)
+		return fmt.Sprintf(`
+resource "medplum_access_policy" "bot" {
+  name = "tf-acc-bot-policy-%s"
+  resource {
+    resource_type = "Patient"
+    readonly      = true
+  }
+}
+
+resource "medplum_bot" "test" {
+  name          = "tf-acc-bot-%s"
+  description   = "acc test bot"
+  code          = %q
+  timeout       = 30
+  access_policy = "AccessPolicy/${medplum_access_policy.bot.id}"
+}`, suffix, suffix, botCode)
+	}
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{ // create: bot + membership + deployed code, live via $execute
+				Config: cfg("hello-v1"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("medplum_bot.test", "id"),
+					resource.TestCheckResourceAttrSet("medplum_bot.test", "membership_id"),
+					resource.TestCheckResourceAttrSet("medplum_bot.test", "project_id"),
+					resource.TestCheckResourceAttrSet("medplum_bot.test", "source_hash"),
+					resource.TestCheckResourceAttr("medplum_bot.test", "runtime_version", "vmcontext"),
+					checkBotExecute(c, "medplum_bot.test", "hello-v1"),
+				),
+			},
+			{Config: cfg("hello-v1"), PlanOnly: true}, // no-op plan
+			{ // edit code -> apply -> new behaviour live (no restart)
+				Config: cfg("hello-v2"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					checkBotExecute(c, "medplum_bot.test", "hello-v2"),
+				),
+			},
+			{ // import: membership discovered, hash recomputed from deployed Binary
+				ResourceName:            "medplum_bot.test",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"code", "source_path"},
+			},
+		},
+	})
+}
+
+func TestAccBot_fissionRejectedAtPlanTime(t *testing.T) {
+	if os.Getenv("TF_ACC") == "" {
+		t.Skip("TF_ACC not set")
+	}
+	cfg := `
+resource "medplum_bot" "fission" {
+  name            = "tf-acc-bot-fission"
+  code            = "exports.handler = async () => true;"
+  runtime_version = "fission"
+}`
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config:      cfg,
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`not supported by this environment|supported_bot_runtimes`),
+			},
+		},
+	})
 }
