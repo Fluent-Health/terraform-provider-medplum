@@ -157,7 +157,7 @@ func (r *projectSecretResource) mutateProject(ctx context.Context, projectID str
 		meta, _ := doc["meta"].(map[string]any)
 		versionID, _ := meta["versionId"].(string)
 		if versionID == "" {
-			return fmt.Errorf("Project/%s carries no meta.versionId; cannot write safely", projectID)
+			return fmt.Errorf("missing meta.versionId on Project/%s; cannot write safely", projectID)
 		}
 		write, err := mutate(doc)
 		if err != nil {
