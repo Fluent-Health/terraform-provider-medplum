@@ -434,3 +434,84 @@ resource "medplum_bot" "fission" {
 		},
 	})
 }
+
+// checkBotMembershipAdmin asserts the live ProjectMembership.admin flag of the
+// bot's membership, straight from the server.
+func checkBotMembershipAdmin(c *client.Client, resourceName string, want bool) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		rs, ok := s.RootModule().Resources[resourceName]
+		if !ok {
+			return fmt.Errorf("resource %s not found in state", resourceName)
+		}
+		mid := rs.Primary.Attributes["membership_id"]
+		if mid == "" {
+			return fmt.Errorf("%s has no membership_id", resourceName)
+		}
+		out, err := c.FHIRRead(context.Background(), "ProjectMembership", mid)
+		if err != nil {
+			return fmt.Errorf("read membership: %w", err)
+		}
+		var mem struct {
+			Admin *bool `json:"admin"`
+		}
+		if err := json.Unmarshal(out, &mem); err != nil {
+			return err
+		}
+		got := mem.Admin != nil && *mem.Admin
+		if got != want {
+			return fmt.Errorf("membership admin = %v, want %v", got, want)
+		}
+		return nil
+	}
+}
+
+func TestAccBot_adminMembership(t *testing.T) {
+	if os.Getenv("TF_ACC") == "" {
+		t.Skip("TF_ACC not set")
+	}
+	c := newAccClient(t)
+	ensureBotsFeature(t, c)
+
+	suffix := acctest.RandStringFromCharSet(8, acctest.CharSetAlphaNum)
+	cfg := func(adminLine string) string {
+		return fmt.Sprintf(`
+resource "medplum_bot" "admin" {
+  name = "tf-acc-bot-admin-%s"
+  code = "exports.handler = async () => true;"
+  %s
+}`, suffix, adminLine)
+	}
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{ // create with admin membership
+				Config: cfg("admin = true"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("medplum_bot.admin", "admin", "true"),
+					checkBotMembershipAdmin(c, "medplum_bot.admin", true),
+				),
+			},
+			{Config: cfg("admin = true"), PlanOnly: true}, // no-op plan
+			{ // demote: true -> false updates the membership back
+				Config: cfg("admin = false"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("medplum_bot.admin", "admin", "false"),
+					checkBotMembershipAdmin(c, "medplum_bot.admin", false),
+				),
+			},
+			{ // promote again via update path (default -> true drift direction)
+				Config: cfg("admin = true"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					checkBotMembershipAdmin(c, "medplum_bot.admin", true),
+				),
+			},
+			{ // import must reflect the live membership.admin
+				ResourceName:            "medplum_bot.admin",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"code", "source_path"},
+			},
+		},
+	})
+}
