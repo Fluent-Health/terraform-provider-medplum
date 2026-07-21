@@ -37,6 +37,14 @@ func IsNotFound(err error) bool {
 	return errors.As(err, &ae) && (ae.StatusCode == http.StatusNotFound || ae.StatusCode == http.StatusGone)
 }
 
+// IsConflict reports whether err is an APIError from a failed optimistic-
+// concurrency write: HTTP 412 (Precondition Failed, Medplum's answer to a
+// stale If-Match) or 409 (Conflict). Callers re-read and retry on these.
+func IsConflict(err error) bool {
+	var ae *APIError
+	return errors.As(err, &ae) && (ae.StatusCode == http.StatusPreconditionFailed || ae.StatusCode == http.StatusConflict)
+}
+
 func (c *Client) fhirURL(parts ...string) string {
 	u := c.baseURL + c.fhirPath
 	for _, p := range parts {
@@ -46,6 +54,11 @@ func (c *Client) fhirURL(parts ...string) string {
 }
 
 func (c *Client) do(ctx context.Context, method, url string, body []byte) ([]byte, error) {
+	return c.doHeaders(ctx, method, url, body, nil)
+}
+
+// doHeaders is do with extra request headers (e.g. If-Match).
+func (c *Client) doHeaders(ctx context.Context, method, url string, body []byte, headers map[string]string) ([]byte, error) {
 	var rdr io.Reader
 	if body != nil {
 		rdr = bytes.NewReader(body)
@@ -58,6 +71,9 @@ func (c *Client) do(ctx context.Context, method, url string, body []byte) ([]byt
 		req.Header.Set("Content-Type", "application/fhir+json")
 	}
 	req.Header.Set("Accept", "application/fhir+json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -139,6 +155,22 @@ func (c *Client) FHIRUpdate(ctx context.Context, resourceType, id string, body [
 		return nil, fmt.Errorf("FHIRUpdate: id is required")
 	}
 	return c.do(ctx, http.MethodPut, c.fhirURL(resourceType, id), body)
+}
+
+// FHIRUpdateIfMatch PUTs a resource guarded by optimistic concurrency: the
+// request carries `If-Match: W/"<versionID>"` (versionID from the prior GET's
+// meta.versionId), so a concurrent writer makes the server reject the PUT with
+// HTTP 412 instead of silently losing one of the writes. Check IsConflict and
+// re-read + retry on failure.
+func (c *Client) FHIRUpdateIfMatch(ctx context.Context, resourceType, id, versionID string, body []byte) ([]byte, error) {
+	if id == "" {
+		return nil, fmt.Errorf("FHIRUpdateIfMatch: id is required")
+	}
+	if versionID == "" {
+		return nil, fmt.Errorf("FHIRUpdateIfMatch: versionID is required")
+	}
+	headers := map[string]string{"If-Match": fmt.Sprintf(`W/%q`, versionID)}
+	return c.doHeaders(ctx, http.MethodPut, c.fhirURL(resourceType, id), body, headers)
 }
 
 // FHIRDelete DELETEs a resource by id.
