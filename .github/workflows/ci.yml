@@ -52,14 +52,14 @@ jobs:
         with:
           node-version: "20"
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
       # Cache the IG Publisher jar and downloaded FHIR packages.
       # Key includes the pinned publisher version so a version bump busts the cache.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.fhir-ig-publisher
