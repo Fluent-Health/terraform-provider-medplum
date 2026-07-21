@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -36,6 +37,7 @@ type botModel struct {
 	Timeout        types.Int64  `tfsdk:"timeout"`
 	RunAsUser      types.Bool   `tfsdk:"run_as_user"`
 	AccessPolicy   types.String `tfsdk:"access_policy"`
+	Admin          types.Bool   `tfsdk:"admin"`
 	ProjectID      types.String `tfsdk:"project_id"`
 	MembershipID   types.String `tfsdk:"membership_id"`
 }
@@ -207,6 +209,15 @@ func (r *botResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *
 				Optional:            true,
 				MarkdownDescription: "AccessPolicy reference for the bot's ProjectMembership, e.g. AccessPolicy/abc.",
 			},
+			"admin": schema.BoolAttribute{
+				Optional: true, Computed: true,
+				Default: booldefault.StaticBool(false),
+				MarkdownDescription: "Make the bot's ProjectMembership a project admin (default false). " +
+					"ProjectMembership, Project, and User are project-admin-only resource types in Medplum, " +
+					"so bots that must write them — e.g. a group→AccessPolicy mapper writing membership.access[] — " +
+					"need an admin membership; no ordinary AccessPolicy can grant that. Reads reflect the live " +
+					"membership.admin, so out-of-band changes surface as drift.",
+			},
 			"project_id": schema.StringAttribute{
 				Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 				MarkdownDescription: "Project the bot lives in. Always the provider session's project: Medplum creates bots in the authenticated project.",
@@ -366,6 +377,15 @@ func (r *botResource) Create(ctx context.Context, req resource.CreateRequest, re
 		}
 	}
 
+	// admin lives on the ProjectMembership the server just created; the admin
+	// create contract has no slot for it, so promote with a follow-up PUT.
+	if plan.Admin.ValueBool() {
+		if err := r.updateMembershipAdmin(ctx, mid, true); err != nil {
+			resp.Diagnostics.AddError("Membership update failed", err.Error())
+			return
+		}
+	}
+
 	if err := r.deploy(ctx, created.ID, code); err != nil {
 		resp.Diagnostics.AddError("Deploy failed", err.Error())
 		return
@@ -443,6 +463,7 @@ func (r *botResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 		AccessPolicy struct {
 			Reference string `json:"reference"`
 		} `json:"accessPolicy"`
+		Admin *bool `json:"admin"`
 	}
 	if err := json.Unmarshal(memOut, &mem); err != nil {
 		resp.Diagnostics.AddError("Decoding failed", err.Error())
@@ -450,6 +471,9 @@ func (r *botResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	}
 	m.MembershipID = types.StringValue(mem.ID)
 	m.AccessPolicy = optString(mem.AccessPolicy.Reference)
+	// Absent admin means false (the schema default), so an out-of-band
+	// promotion/demotion shows up as drift.
+	m.Admin = types.BoolValue(mem.Admin != nil && *mem.Admin)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &m)...)
 }
@@ -490,6 +514,15 @@ func (r *botResource) Update(ctx context.Context, req resource.UpdateRequest, re
 
 	if strOrEmpty(plan.AccessPolicy) != strOrEmpty(state.AccessPolicy) {
 		if err := r.updateMembershipAccessPolicy(ctx, state.MembershipID.ValueString(), strOrEmpty(plan.AccessPolicy)); err != nil {
+			resp.Diagnostics.AddError("Membership update failed", err.Error())
+			return
+		}
+	}
+
+	// admin: plan is always known (schema default false); a null state value
+	// (resource created before the attribute existed) reads as false.
+	if plan.Admin.ValueBool() != (!state.Admin.IsNull() && state.Admin.ValueBool()) {
+		if err := r.updateMembershipAdmin(ctx, state.MembershipID.ValueString(), plan.Admin.ValueBool()); err != nil {
 			resp.Diagnostics.AddError("Membership update failed", err.Error())
 			return
 		}
@@ -590,6 +623,30 @@ func (r *botResource) updateMembershipAccessPolicy(ctx context.Context, membersh
 		delete(doc, "accessPolicy")
 	} else {
 		doc["accessPolicy"] = refObj(policyRef)
+	}
+	body, err := json.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	_, err = r.data.Client.FHIRUpdate(ctx, "ProjectMembership", membershipID, body)
+	return err
+}
+
+// updateMembershipAdmin read-modify-writes ProjectMembership.admin. false is
+// written as an absent field (Medplum's own default), not admin:false.
+func (r *botResource) updateMembershipAdmin(ctx context.Context, membershipID string, admin bool) error {
+	cur, err := r.data.Client.FHIRRead(ctx, "ProjectMembership", membershipID)
+	if err != nil {
+		return err
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(cur, &doc); err != nil {
+		return err
+	}
+	if admin {
+		doc["admin"] = true
+	} else {
+		delete(doc, "admin")
 	}
 	body, err := json.Marshal(doc)
 	if err != nil {

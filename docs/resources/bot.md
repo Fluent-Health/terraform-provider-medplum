@@ -55,6 +55,7 @@ resource "medplum_bot" "ping" {
 ### Optional
 
 - `access_policy` (String) AccessPolicy reference for the bot's ProjectMembership, e.g. AccessPolicy/abc.
+- `admin` (Boolean) Make the bot's ProjectMembership a project admin (default false). ProjectMembership, Project, and User are project-admin-only resource types in Medplum, so bots that must write them — e.g. a group→AccessPolicy mapper writing membership.access[] — need an admin membership; no ordinary AccessPolicy can grant that. Reads reflect the live membership.admin, so out-of-band changes surface as drift.
 - `code` (String) Inline bundled JavaScript (CommonJS: `exports.handler = async (medplum, event) => ...`). Exactly one of code / source_path. Prefer source_path for anything beyond trivial bots — inline code is stored in state.
 - `description` (String)
 - `run_as_user` (Boolean) Run as the invoking user instead of the bot's own identity.

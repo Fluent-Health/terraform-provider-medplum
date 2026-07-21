@@ -1,3 +1,15 @@
+# v0.5.0 (2026-07-21)
+
+### Features
+
+* **medplum_project_secret:** new resource managing a single named entry in the session project's `Project.secret[]` settings (the values bots receive as `event.secrets`). Schema: `name` (forces replacement), `value_string` (sensitive), computed `id`/`project_id`. Each entry is an independent resource, so unmanaged sibling entries are always preserved; writes to the shared Project resource are read-modify-write guarded by optimistic concurrency (`If-Match` on the project version, bounded retries with jitter), making parallel applies of many secrets safe. Creating a name that already exists fails instead of silently adopting the entry; import by name (`terraform import medplum_project_secret.x <name>`).
+* **medplum_project_secret:** write-only value mode — `value_string_wo` (Terraform >= 1.11) sends the secret to Medplum without ever persisting it to plan or state, paired with `value_string_wo_version`, which must be incremented to push a changed value (Terraform cannot diff a write-only value, so drift detection/repair is only available in the stateful `value_string` mode). Exactly one of `value_string`/`value_string_wo` must be set; migrating an existing secret between modes in place is supported.
+* **medplum_bot:** new `admin` attribute (default `false`) that promotes the bot's ProjectMembership to project admin — required for bots that must write project-admin-only resource types (ProjectMembership, Project, User), e.g. a group→AccessPolicy mapper writing `membership.access[]`. Reads reflect the live `membership.admin`, so out-of-band changes surface as drift; setting it back to `false` demotes the membership.
+
+### Reliability
+
+* **client:** add `FHIRUpdateIfMatch` (conditional PUT with `If-Match: W/"<versionId>"`) and `IsConflict` (HTTP 412/409 classification) supporting optimistic-concurrency read-modify-write flows.
+
 # v0.4.0 (2026-07-20)
 
 ### Features

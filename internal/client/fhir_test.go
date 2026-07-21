@@ -167,3 +167,58 @@ func TestFHIRReadBinaryContent_Error(t *testing.T) {
 		t.Fatalf("expected IsNotFound error, got %v", err)
 	}
 }
+
+func TestFHIRUpdateIfMatch_SendsWeakETag(t *testing.T) {
+	c, srv := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/fhir/R4/Project/p-1" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if got := r.Header.Get("If-Match"); got != `W/"7"` {
+			http.Error(w, "wrong If-Match: "+got, http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/fhir+json")
+		_, _ = w.Write([]byte(`{"resourceType":"Project","id":"p-1","meta":{"versionId":"8"}}`))
+	})
+	defer srv.Close()
+
+	out, err := c.FHIRUpdateIfMatch(context.Background(), "Project", "p-1", "7", []byte(`{"resourceType":"Project","id":"p-1"}`))
+	if err != nil {
+		t.Fatalf("FHIRUpdateIfMatch: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got["id"] != "p-1" {
+		t.Fatalf("expected id p-1, got %v", got["id"])
+	}
+}
+
+func TestFHIRUpdateIfMatch_RequiresIDAndVersion(t *testing.T) {
+	c, srv := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	defer srv.Close()
+
+	if _, err := c.FHIRUpdateIfMatch(context.Background(), "Project", "", "7", nil); err == nil {
+		t.Fatal("expected error for empty id")
+	}
+	if _, err := c.FHIRUpdateIfMatch(context.Background(), "Project", "p-1", "", nil); err == nil {
+		t.Fatal("expected error for empty versionID")
+	}
+}
+
+func TestIsConflict(t *testing.T) {
+	if !IsConflict(&APIError{StatusCode: http.StatusPreconditionFailed}) {
+		t.Fatal("expected HTTP 412 to be a conflict")
+	}
+	if !IsConflict(&APIError{StatusCode: http.StatusConflict}) {
+		t.Fatal("expected HTTP 409 to be a conflict")
+	}
+	if IsConflict(&APIError{StatusCode: http.StatusBadRequest}) {
+		t.Fatal("400 must not be a conflict")
+	}
+	if IsConflict(nil) {
+		t.Fatal("nil must not be a conflict")
+	}
+}
