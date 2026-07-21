@@ -150,6 +150,7 @@ func (p *medplumProvider) Resources(_ context.Context) []func() resource.Resourc
 		NewAccessPolicyResource,
 		NewClientApplicationResource,
 		NewProjectMembershipResource,
+		NewProjectSecretResource,
 		NewUserResource,
 		NewProjectResource,
 		NewFHIRProfileResource,
