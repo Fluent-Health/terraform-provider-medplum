@@ -12,12 +12,92 @@ import (
 	"sync/atomic"
 	"testing"
 
+	fwresource "github.com/hashicorp/terraform-plugin-framework/resource"
+	fwschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
+	"github.com/hashicorp/terraform-plugin-testing/tfversion"
 
 	"github.com/Fluent-Health/terraform-provider-medplum/internal/client"
 )
+
+// TestProjectSecret_schemaWriteOnly pins the write-only variant of the value:
+// value_string_wo never lands in plan or state (Terraform >= 1.11), paired
+// with value_string_wo_version to trigger updates, while value_string remains
+// available (now optional) for the drift-detecting mode.
+func TestProjectSecret_schemaWriteOnly(t *testing.T) {
+	var resp fwresource.SchemaResponse
+	(&projectSecretResource{}).Schema(context.Background(), fwresource.SchemaRequest{}, &resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("schema diagnostics: %v", resp.Diagnostics)
+	}
+
+	value, ok := resp.Schema.Attributes["value_string"].(fwschema.StringAttribute)
+	if !ok {
+		t.Fatalf("value_string: %T", resp.Schema.Attributes["value_string"])
+	}
+	if value.Required || !value.Optional || !value.Sensitive || value.WriteOnly {
+		t.Fatalf("value_string must be optional+sensitive, not required/write-only: %+v", value)
+	}
+
+	wo, ok := resp.Schema.Attributes["value_string_wo"].(fwschema.StringAttribute)
+	if !ok {
+		t.Fatalf("value_string_wo: %T", resp.Schema.Attributes["value_string_wo"])
+	}
+	if !wo.Optional || !wo.Sensitive || !wo.WriteOnly {
+		t.Fatalf("value_string_wo must be optional+sensitive+write-only: %+v", wo)
+	}
+
+	woVersion, ok := resp.Schema.Attributes["value_string_wo_version"].(fwschema.Int64Attribute)
+	if !ok {
+		t.Fatalf("value_string_wo_version: %T", resp.Schema.Attributes["value_string_wo_version"])
+	}
+	if !woVersion.Optional || woVersion.WriteOnly || woVersion.Sensitive {
+		t.Fatalf("value_string_wo_version must be optional, tracked in state: %+v", woVersion)
+	}
+}
+
+// TestProjectSecret_validateValueChoice covers the config-time rules replacing
+// value_string's former Required flag: exactly one of value_string /
+// value_string_wo, and the wo attribute always travels with its version
+// counter (without which value changes could never trigger an update).
+func TestProjectSecret_validateValueChoice(t *testing.T) {
+	str := types.StringValue("v")
+	ver := types.Int64Value(1)
+	cases := []struct {
+		name    string
+		value   types.String
+		wo      types.String
+		woVer   types.Int64
+		wantErr string
+	}{
+		{"value only", str, types.StringNull(), types.Int64Null(), ""},
+		{"wo with version", types.StringNull(), str, ver, ""},
+		{"neither", types.StringNull(), types.StringNull(), types.Int64Null(), "exactly one"},
+		{"both", str, str, ver, "exactly one"},
+		{"wo without version", types.StringNull(), str, types.Int64Null(), "value_string_wo_version"},
+		{"version without wo", str, types.StringNull(), ver, "value_string_wo_version"},
+		// Unknown (computed elsewhere, resolved at apply) counts as set.
+		{"unknown value only", types.StringUnknown(), types.StringNull(), types.Int64Null(), ""},
+		{"unknown both", types.StringUnknown(), types.StringUnknown(), ver, "exactly one"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateProjectSecretValueChoice(tc.value, tc.wo, tc.woVer)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("want error containing %q, got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
 
 func TestProjectSecret_findUpsertRemove(t *testing.T) {
 	doc := map[string]any{
@@ -293,6 +373,122 @@ resource "medplum_project_secret" "test" {
 				ImportState:       true,
 				ImportStateId:     name,
 				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+// TestAccProjectSecret_writeOnlyLifecycle exercises the value_string_wo mode:
+// the secret value reaches Medplum but never lands in state, updates are
+// driven purely by value_string_wo_version bumps, and a config can migrate
+// from the stateful value_string mode to write-only in place.
+func TestAccProjectSecret_writeOnlyLifecycle(t *testing.T) {
+	if os.Getenv("TF_ACC") == "" {
+		t.Skip("TF_ACC not set")
+	}
+	c := newAccClient(t)
+
+	suffix := acctest.RandStringFromCharSet(8, acctest.CharSetAlphaNum)
+	name := "tf-acc-wo-" + suffix
+	woCfg := func(value string, version int) string {
+		return fmt.Sprintf(`
+resource "medplum_project_secret" "test" {
+  name                    = %q
+  value_string_wo         = %q
+  value_string_wo_version = %d
+}`, name, value, version)
+	}
+	serverValueIs := func(want string) resource.TestCheckFunc {
+		return func(_ *terraform.State) error {
+			got := readProjectSecrets(t, c)
+			if e := got[name]; e == nil || e["valueString"] != want {
+				return fmt.Errorf("server secret %q = %v, want valueString %q", name, e, want)
+			}
+			return nil
+		}
+	}
+	stateHoldsNoValue := resource.ComposeAggregateTestCheckFunc(
+		resource.TestCheckNoResourceAttr("medplum_project_secret.test", "value_string"),
+		resource.TestCheckNoResourceAttr("medplum_project_secret.test", "value_string_wo"),
+	)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		TerraformVersionChecks:   []tfversion.TerraformVersionCheck{tfversion.SkipBelow(tfversion.Version1_11_0)},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{ // start in the stateful mode, to prove in-place migration below
+				Config: fmt.Sprintf(`
+resource "medplum_project_secret" "test" {
+  name         = %q
+  value_string = "v0"
+}`, name),
+				Check: serverValueIs("v0"),
+			},
+			{ // migrate to write-only: value pushed, state emptied of it
+				Config: woCfg("v1", 1),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					serverValueIs("v1"),
+					stateHoldsNoValue,
+					resource.TestCheckResourceAttr("medplum_project_secret.test", "value_string_wo_version", "1"),
+				),
+			},
+			{Config: woCfg("v1", 1), PlanOnly: true}, // no-op plan
+			// A changed value WITHOUT a version bump is invisible to Terraform:
+			// empty plan, nothing pushed. This is the documented wo trade-off.
+			{Config: woCfg("v1-changed-but-unbumped", 1), PlanOnly: true},
+			{ // version bump pushes the new value
+				Config: woCfg("v2", 2),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					serverValueIs("v2"),
+					stateHoldsNoValue,
+				),
+			},
+			{ // import by name; imported state re-reads the value server-side
+				ResourceName:            "medplum_project_secret.test",
+				ImportState:             true,
+				ImportStateId:           name,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"value_string", "value_string_wo_version"},
+			},
+		},
+	})
+}
+
+// TestAccProjectSecret_valueChoiceValidation proves the config-time rules
+// through the real framework wiring (plan-time only, no writes).
+func TestAccProjectSecret_valueChoiceValidation(t *testing.T) {
+	if os.Getenv("TF_ACC") == "" {
+		t.Skip("TF_ACC not set")
+	}
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		TerraformVersionChecks:   []tfversion.TerraformVersionCheck{tfversion.SkipBelow(tfversion.Version1_11_0)},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+resource "medplum_project_secret" "bad" {
+  name = "tf-acc-invalid"
+}`,
+				ExpectError: regexp.MustCompile(`exactly one of value_string or value_string_wo`),
+			},
+			{
+				Config: `
+resource "medplum_project_secret" "bad" {
+  name            = "tf-acc-invalid"
+  value_string    = "a"
+  value_string_wo = "b"
+}`,
+				ExpectError: regexp.MustCompile(`exactly one of value_string or value_string_wo`),
+			},
+			{
+				Config: `
+resource "medplum_project_secret" "bad" {
+  name            = "tf-acc-invalid"
+  value_string_wo = "a"
+}`,
+				ExpectError: regexp.MustCompile(`value_string_wo_version is required`),
 			},
 		},
 	})

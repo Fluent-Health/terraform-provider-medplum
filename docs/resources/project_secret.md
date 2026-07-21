@@ -15,6 +15,11 @@ Because all secrets live on the one Project resource, concurrent applies contend
 
 Creating a secret whose name already exists in the project fails rather than silently adopting the existing entry — import it instead.
 
+The value can be supplied in one of two modes (exactly one must be used):
+
+- `value_string` keeps the value in Terraform state: out-of-band changes to the secret surface as drift and are repaired on apply.
+- `value_string_wo` (Terraform >= 1.11) is write-only: the value is sent to Medplum but never persisted to plan or state, keeping it out of state backends and plan output. In exchange, Terraform cannot detect value changes at all — increment the companion `value_string_wo_version` whenever the value changes to push it. Note the value remains readable in plaintext from `Project.secret[]` by project admins either way; write-only protects the Terraform state, not the Medplum API.
+
 ## Example Usage
 
 ```terraform
@@ -33,6 +38,15 @@ resource "medplum_project_secret" "smtp_password" {
   value_string = var.smtp_password
 }
 
+# Write-only mode (Terraform >= 1.11): the value is pushed to Medplum but
+# never stored in plan or state. Terraform cannot see value changes on its
+# own, so bump value_string_wo_version whenever the value changes.
+resource "medplum_project_secret" "api_key" {
+  name                    = "PARTNER_API_KEY"
+  value_string_wo         = var.partner_api_key
+  value_string_wo_version = 1
+}
+
 # A bot reading the secrets:
 #   exports.handler = async (medplum, event) => {
 #     const token = event.secrets["WEBHOOK_TOKEN"].valueString;
@@ -46,7 +60,14 @@ resource "medplum_project_secret" "smtp_password" {
 ### Required
 
 - `name` (String) Secret name, unique within the project (the key bots see in `event.secrets`). Changing it replaces the resource.
-- `value_string` (String, Sensitive) The secret's string value (`ProjectSetting.valueString`).
+
+### Optional
+
+> **NOTE**: [Write-only arguments](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments) are supported in Terraform 1.11 and later.
+
+- `value_string` (String, Sensitive) The secret's string value (`ProjectSetting.valueString`), stored in state: out-of-band changes surface as drift and are repaired on apply. Exactly one of `value_string` and `value_string_wo` must be set.
+- `value_string_wo` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Write-only variant of `value_string` (requires Terraform >= 1.11): the value is sent to Medplum but never persisted to plan or state. Terraform therefore cannot detect drift or value changes on its own — bump `value_string_wo_version` to push a new value.
+- `value_string_wo_version` (Number) Tracked companion to `value_string_wo`: increment it whenever the write-only value changes to trigger an update. Required when `value_string_wo` is set.
 
 ### Read-Only
 
