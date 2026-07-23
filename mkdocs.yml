@@ -1,0 +1,18 @@
+site_name: Terraform Provider for Medplum
+site_description: Terraform provider for managing Medplum FHIR resources, access policies, projects, and client applications.
+
+nav:
+  - Overview: index.md
+  - Resources:
+      - Access Policy: resources/access_policy.md
+      - Bot: resources/bot.md
+      - Client Application: resources/client_application.md
+      - FHIR Data Migration: resources/fhir_data_migration.md
+      - FHIR Profile: resources/fhir_profile.md
+      - FHIR Resource: resources/fhir_resource.md
+      - Project: resources/project.md
+      - Project Membership: resources/project_membership.md
+      - Project Secret: resources/project_secret.md
+      - User: resources/user.md
+  - Data Sources:
+      - FHIR Search: data-sources/fhir_search.md
