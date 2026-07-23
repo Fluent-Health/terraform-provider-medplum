@@ -6,7 +6,8 @@ metadata:
   annotations:
     github.com/project-slug: Fluent-Health/terraform-provider-medplum
     backstage.io/source-location: url:https://github.com/Fluent-Health/terraform-provider-medplum/tree/main/
-    fluentinhealth.com/oss: pending
+    backstage.io/techdocs-ref: dir:.
+    fluentinhealth.com/oss: published
   tags:
     - terraform
     - medplum
