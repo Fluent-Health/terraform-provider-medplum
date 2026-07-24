@@ -646,6 +646,9 @@ func TestValidateCronString(t *testing.T) {
 		"* * * * 7",   // day-of-week above 6
 		"*/0 * * * *", // zero step
 		"1-a * * * *", // non-numeric range
+		"+5 * * * *",  // leading + not allowed
+		"*/+2 * * * *",    // leading + in step
+		"1-+5 * * * *",    // leading + in range bound
 	}
 	for _, expr := range invalid {
 		if err := validateCronString(expr); err == nil {

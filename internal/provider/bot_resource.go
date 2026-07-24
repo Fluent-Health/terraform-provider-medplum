@@ -110,17 +110,26 @@ func validateCronField(field string, f cronField) error {
 		base := term
 		if slash := strings.Index(term, "/"); slash >= 0 {
 			base = term[:slash]
-			step, err := strconv.Atoi(term[slash+1:])
+			stepStr := term[slash+1:]
+			if strings.HasPrefix(stepStr, "+") {
+				return fmt.Errorf("invalid step %q", stepStr)
+			}
+			step, err := strconv.Atoi(stepStr)
 			if err != nil || step < 1 {
-				return fmt.Errorf("invalid step %q", term[slash+1:])
+				return fmt.Errorf("invalid step %q", stepStr)
 			}
 		}
 		if base == "*" {
 			continue
 		}
 		if dash := strings.Index(base, "-"); dash >= 0 {
-			lo, err1 := strconv.Atoi(base[:dash])
-			hi, err2 := strconv.Atoi(base[dash+1:])
+			loStr := base[:dash]
+			hiStr := base[dash+1:]
+			if strings.HasPrefix(loStr, "+") || strings.HasPrefix(hiStr, "+") {
+				return fmt.Errorf("invalid range %q", base)
+			}
+			lo, err1 := strconv.Atoi(loStr)
+			hi, err2 := strconv.Atoi(hiStr)
 			if err1 != nil || err2 != nil {
 				return fmt.Errorf("invalid range %q", base)
 			}
@@ -128,6 +137,9 @@ func validateCronField(field string, f cronField) error {
 				return fmt.Errorf("range %q out of bounds %d-%d", base, f.min, f.max)
 			}
 			continue
+		}
+		if strings.HasPrefix(base, "+") {
+			return fmt.Errorf("not a number: %q", base)
 		}
 		n, err := strconv.Atoi(base)
 		if err != nil {
