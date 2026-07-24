@@ -23,3 +23,12 @@ resource "medplum_bot" "ping" {
   name = "ping"
   code = "exports.handler = async () => \"pong\";"
 }
+
+# A scheduled bot. Runs on a cron cadence (here: 02:00 UTC daily). Requires the
+# `cron` feature enabled on the Medplum Project; without it the schedule is
+# stored but never runs.
+resource "medplum_bot" "nightly_reconcile" {
+  name        = "nightly-reconcile"
+  source_path = "${path.module}/dist/nightly-reconcile.js"
+  cron_string = "0 2 * * *"
+}
