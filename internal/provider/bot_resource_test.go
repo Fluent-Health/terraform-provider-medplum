@@ -182,6 +182,14 @@ func TestBot_fromDoc(t *testing.T) {
 // (Project.features gate, server bots/utils.ts isBotEnabled).
 func ensureBotsFeature(t *testing.T, c *client.Client) {
 	t.Helper()
+	ensureProjectFeature(t, c, "bots")
+}
+
+// ensureProjectFeature makes sure the session's Project has `feature` in its
+// features array, enabling it if absent. Used to satisfy feature gates like
+// "bots" (bot execution) and "cron" (bot scheduling).
+func ensureProjectFeature(t *testing.T, c *client.Client, feature string) {
+	t.Helper()
 	ctx := context.Background()
 	pid, err := c.CurrentProjectID(ctx)
 	if err != nil {
@@ -197,17 +205,17 @@ func ensureBotsFeature(t *testing.T, c *client.Client) {
 	}
 	feats, _ := doc["features"].([]any)
 	for _, f := range feats {
-		if f == "bots" {
+		if f == feature {
 			return
 		}
 	}
-	doc["features"] = append(feats, "bots")
+	doc["features"] = append(feats, feature)
 	body, err := json.Marshal(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.FHIRUpdate(ctx, "Project", pid, body); err != nil {
-		t.Fatalf("enable bots feature: %v", err)
+		t.Fatalf("enable %s feature: %v", feature, err)
 	}
 }
 
@@ -511,6 +519,100 @@ resource "medplum_bot" "admin" {
 				ImportState:             true,
 				ImportStateVerify:       true,
 				ImportStateVerifyIgnore: []string{"code", "source_path"},
+			},
+		},
+	})
+}
+
+// checkBotCronString asserts the live Bot.cronString from the server. want ""
+// means the field must be absent.
+func checkBotCronString(c *client.Client, resourceName, want string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		rs, ok := s.RootModule().Resources[resourceName]
+		if !ok {
+			return fmt.Errorf("resource %s not found in state", resourceName)
+		}
+		out, err := c.FHIRRead(context.Background(), "Bot", rs.Primary.ID)
+		if err != nil {
+			return fmt.Errorf("read bot: %w", err)
+		}
+		var bot struct {
+			CronString string `json:"cronString"`
+		}
+		if err := json.Unmarshal(out, &bot); err != nil {
+			return err
+		}
+		if bot.CronString != want {
+			return fmt.Errorf("cronString = %q, want %q", bot.CronString, want)
+		}
+		return nil
+	}
+}
+
+func TestAccBot_cronSchedule(t *testing.T) {
+	if os.Getenv("TF_ACC") == "" {
+		t.Skip("TF_ACC not set")
+	}
+	c := newAccClient(t)
+	ensureBotsFeature(t, c)
+	ensureProjectFeature(t, c, "cron")
+
+	suffix := acctest.RandStringFromCharSet(8, acctest.CharSetAlphaNum)
+	cfg := func(cronLine string) string {
+		return fmt.Sprintf(`
+resource "medplum_bot" "cron" {
+  name = "tf-acc-bot-cron-%s"
+  code = "exports.handler = async () => true;"
+  %s
+}`, suffix, cronLine)
+	}
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{ // create with a schedule
+				Config: cfg(`cron_string = "0 2 * * *"`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("medplum_bot.cron", "cron_string", "0 2 * * *"),
+					checkBotCronString(c, "medplum_bot.cron", "0 2 * * *"),
+				),
+			},
+			{Config: cfg(`cron_string = "0 2 * * *"`), PlanOnly: true}, // no-op plan
+			{ // change the schedule
+				Config: cfg(`cron_string = "*/15 9-17 * * 1-5"`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					checkBotCronString(c, "medplum_bot.cron", "*/15 9-17 * * 1-5"),
+				),
+			},
+			{ // remove the schedule -> field deleted server-side
+				Config: cfg(``),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr("medplum_bot.cron", "cron_string"),
+					checkBotCronString(c, "medplum_bot.cron", ""),
+				),
+			},
+		},
+	})
+}
+
+func TestAccBot_invalidCronRejectedAtPlanTime(t *testing.T) {
+	if os.Getenv("TF_ACC") == "" {
+		t.Skip("TF_ACC not set")
+	}
+	cfg := `
+resource "medplum_bot" "badcron" {
+  name        = "tf-acc-bot-badcron"
+  code        = "exports.handler = async () => true;"
+  cron_string = "not a cron"
+}`
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config:      cfg,
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`Invalid cron_string`),
 			},
 		},
 	})
