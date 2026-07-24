@@ -551,3 +551,25 @@ func TestValidateCronString(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyBotFields_CronString(t *testing.T) {
+	// Setting cron_string writes cronString.
+	m := botModel{
+		Name:           types.StringValue("b"),
+		RuntimeVersion: types.StringValue("vmcontext"),
+		CronString:     types.StringValue("0 2 * * *"),
+	}
+	doc := map[string]any{}
+	m.applyBotFields(doc)
+	if doc["cronString"] != "0 2 * * *" {
+		t.Fatalf("cronString = %v, want %q", doc["cronString"], "0 2 * * *")
+	}
+
+	// Clearing cron_string deletes the field from an existing doc.
+	m.CronString = types.StringNull()
+	doc = map[string]any{"cronString": "0 2 * * *"}
+	m.applyBotFields(doc)
+	if _, present := doc["cronString"]; present {
+		t.Fatalf("cronString should be deleted when null, got %v", doc["cronString"])
+	}
+}

@@ -39,6 +39,7 @@ type botModel struct {
 	RunAsUser      types.Bool   `tfsdk:"run_as_user"`
 	AccessPolicy   types.String `tfsdk:"access_policy"`
 	Admin          types.Bool   `tfsdk:"admin"`
+	CronString     types.String `tfsdk:"cron_string"`
 	ProjectID      types.String `tfsdk:"project_id"`
 	MembershipID   types.String `tfsdk:"membership_id"`
 }
@@ -203,6 +204,11 @@ func (m botModel) applyBotFields(doc map[string]any) {
 	} else {
 		doc["runAsUser"] = m.RunAsUser.ValueBool()
 	}
+	if v := strOrEmpty(m.CronString); v != "" {
+		doc["cronString"] = v
+	} else {
+		delete(doc, "cronString")
+	}
 }
 
 type botDoc struct {
@@ -212,6 +218,7 @@ type botDoc struct {
 	RuntimeVersion string `json:"runtimeVersion"`
 	Timeout        *int64 `json:"timeout"`
 	RunAsUser      *bool  `json:"runAsUser"`
+	CronString     string `json:"cronString"`
 	Meta           struct {
 		Project string `json:"project"`
 	} `json:"meta"`
@@ -238,6 +245,7 @@ func (m *botModel) fromDoc(doc botDoc) {
 	} else {
 		m.RunAsUser = types.BoolNull()
 	}
+	m.CronString = optString(doc.CronString)
 	m.ProjectID = types.StringValue(doc.Meta.Project)
 }
 
@@ -280,6 +288,14 @@ func (r *botResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *
 			},
 			"timeout":     schema.Int64Attribute{Optional: true, MarkdownDescription: "Execution timeout in seconds."},
 			"run_as_user": schema.BoolAttribute{Optional: true, MarkdownDescription: "Run as the invoking user instead of the bot's own identity."},
+			"cron_string": schema.StringAttribute{
+				Optional: true,
+				MarkdownDescription: "Cron schedule for the bot, as a standard 5-field expression " +
+					"(minute hour day-of-month month day-of-week), evaluated in UTC — e.g. `0 2 * * *` " +
+					"for 02:00 daily. Requires the `cron` feature enabled on the Medplum Project; without " +
+					"it the schedule is stored on the Bot but never runs. An invalid expression is rejected " +
+					"at plan time.",
+			},
 			"access_policy": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "AccessPolicy reference for the bot's ProjectMembership, e.g. AccessPolicy/abc.",
@@ -334,6 +350,12 @@ func (r *botResource) ValidateConfig(ctx context.Context, req resource.ValidateC
 	if rv := strOrEmpty(m.RuntimeVersion); rv != "" && !slices.Contains(botRuntimes, rv) {
 		resp.Diagnostics.AddAttributeError(path.Root("runtime_version"), "Invalid runtime_version",
 			fmt.Sprintf("%q is not a Medplum bot runtime; must be one of %s.", rv, strings.Join(botRuntimes, ", ")))
+	}
+	if cs := m.CronString; !cs.IsNull() && !cs.IsUnknown() {
+		if err := validateCronString(cs.ValueString()); err != nil {
+			resp.Diagnostics.AddAttributeError(path.Root("cron_string"), "Invalid cron_string",
+				fmt.Sprintf("%q is not a valid 5-field cron expression: %v", cs.ValueString(), err))
+		}
 	}
 }
 
@@ -445,7 +467,7 @@ func (r *botResource) Create(ctx context.Context, req resource.CreateRequest, re
 
 	// timeout / run_as_user are not part of the admin create contract — apply
 	// them with a read-modify-write PUT that preserves sourceCode et al.
-	if !plan.Timeout.IsNull() || !plan.RunAsUser.IsNull() {
+	if !plan.Timeout.IsNull() || !plan.RunAsUser.IsNull() || !plan.CronString.IsNull() {
 		if err := r.updateBotFields(ctx, created.ID, plan); err != nil {
 			resp.Diagnostics.AddError("Update failed", err.Error())
 			return
