@@ -634,21 +634,21 @@ func TestValidateCronString(t *testing.T) {
 	}
 
 	invalid := []string{
-		"",            // empty
-		"testing",     // not cron
-		"0 2 * *",     // 4 fields
-		"0 2 * * * *", // 6 fields (seconds not allowed)
-		"60 * * * *",  // minute out of range
-		"* 24 * * *",  // hour out of range
-		"* * 0 * *",   // day-of-month below 1
-		"* * 32 * *",  // day-of-month above 31
-		"* * * 13 *",  // month out of range
-		"* * * * 7",   // day-of-week above 6
-		"*/0 * * * *", // zero step
-		"1-a * * * *", // non-numeric range
-		"+5 * * * *",  // leading + not allowed
-		"*/+2 * * * *",    // leading + in step
-		"1-+5 * * * *",    // leading + in range bound
+		"",             // empty
+		"testing",      // not cron
+		"0 2 * *",      // 4 fields
+		"0 2 * * * *",  // 6 fields (seconds not allowed)
+		"60 * * * *",   // minute out of range
+		"* 24 * * *",   // hour out of range
+		"* * 0 * *",    // day-of-month below 1
+		"* * 32 * *",   // day-of-month above 31
+		"* * * 13 *",   // month out of range
+		"* * * * 7",    // day-of-week above 6
+		"*/0 * * * *",  // zero step
+		"1-a * * * *",  // non-numeric range
+		"+5 * * * *",   // leading + not allowed
+		"*/+2 * * * *", // leading + in step
+		"1-+5 * * * *", // leading + in range bound
 	}
 	for _, expr := range invalid {
 		if err := validateCronString(expr); err == nil {
