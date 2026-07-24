@@ -515,3 +515,39 @@ resource "medplum_bot" "admin" {
 		},
 	})
 }
+
+func TestValidateCronString(t *testing.T) {
+	valid := []string{
+		"0 2 * * *",         // 02:00 daily
+		"*/15 9-17 * * 1-5", // every 15m, 9-5, Mon-Fri
+		"0 0 1 * *",         // 1st of month
+		"* * * * *",         // every minute
+		"0,30 * * * 0",      // :00 and :30 on Sundays
+		"0 0 * * 6",         // Saturdays midnight
+	}
+	for _, expr := range valid {
+		if err := validateCronString(expr); err != nil {
+			t.Errorf("validateCronString(%q) = %v, want nil", expr, err)
+		}
+	}
+
+	invalid := []string{
+		"",              // empty
+		"testing",       // not cron
+		"0 2 * *",       // 4 fields
+		"0 2 * * * *",   // 6 fields (seconds not allowed)
+		"60 * * * *",    // minute out of range
+		"* 24 * * *",    // hour out of range
+		"* * 0 * *",     // day-of-month below 1
+		"* * 32 * *",    // day-of-month above 31
+		"* * * 13 *",    // month out of range
+		"* * * * 7",     // day-of-week above 6
+		"*/0 * * * *",   // zero step
+		"1-a * * * *",   // non-numeric range
+	}
+	for _, expr := range invalid {
+		if err := validateCronString(expr); err == nil {
+			t.Errorf("validateCronString(%q) = nil, want error", expr)
+		}
+	}
+}

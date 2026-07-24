@@ -11,6 +11,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -62,6 +63,80 @@ func (m botModel) resolveCode() (code string, ok bool, err error) {
 
 func sourceHashOf(code string) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(code)))
+}
+
+// cronField is one position in a standard 5-field cron expression.
+type cronField struct {
+	name     string
+	min, max int
+}
+
+var cronFields = [5]cronField{
+	{"minute", 0, 59},
+	{"hour", 0, 23},
+	{"day-of-month", 1, 31},
+	{"month", 1, 12},
+	{"day-of-week", 0, 6},
+}
+
+// validateCronString reports whether expr is a valid standard 5-field cron
+// expression (minute hour day-of-month month day-of-week). It mirrors the
+// defaults of the `cron-validator` package Medplum uses server-side
+// (packages/server/src/workers/cron.ts): no seconds field, no month/day
+// aliases. An expression Medplum would silently drop is rejected here at plan
+// time instead.
+func validateCronString(expr string) error {
+	parts := strings.Fields(expr)
+	if len(parts) != 5 {
+		return fmt.Errorf("expected 5 space-separated fields (minute hour day-of-month month day-of-week), got %d", len(parts))
+	}
+	for i, part := range parts {
+		if err := validateCronField(part, cronFields[i]); err != nil {
+			return fmt.Errorf("%s field %q: %w", cronFields[i].name, part, err)
+		}
+	}
+	return nil
+}
+
+// validateCronField validates one comma-separated cron field: each term is
+// "*", a number, a range "a-b", any of those followed by a "/step", or a bare
+// "*/step".
+func validateCronField(field string, f cronField) error {
+	for _, term := range strings.Split(field, ",") {
+		if term == "" {
+			return fmt.Errorf("empty term")
+		}
+		base := term
+		if slash := strings.Index(term, "/"); slash >= 0 {
+			base = term[:slash]
+			step, err := strconv.Atoi(term[slash+1:])
+			if err != nil || step < 1 {
+				return fmt.Errorf("invalid step %q", term[slash+1:])
+			}
+		}
+		if base == "*" {
+			continue
+		}
+		if dash := strings.Index(base, "-"); dash >= 0 {
+			lo, err1 := strconv.Atoi(base[:dash])
+			hi, err2 := strconv.Atoi(base[dash+1:])
+			if err1 != nil || err2 != nil {
+				return fmt.Errorf("invalid range %q", base)
+			}
+			if lo < f.min || hi > f.max || lo > hi {
+				return fmt.Errorf("range %q out of bounds %d-%d", base, f.min, f.max)
+			}
+			continue
+		}
+		n, err := strconv.Atoi(base)
+		if err != nil {
+			return fmt.Errorf("not a number: %q", base)
+		}
+		if n < f.min || n > f.max {
+			return fmt.Errorf("%d out of bounds %d-%d", n, f.min, f.max)
+		}
+	}
+	return nil
 }
 
 var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
