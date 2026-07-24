@@ -182,6 +182,14 @@ func TestBot_fromDoc(t *testing.T) {
 // (Project.features gate, server bots/utils.ts isBotEnabled).
 func ensureBotsFeature(t *testing.T, c *client.Client) {
 	t.Helper()
+	ensureProjectFeature(t, c, "bots")
+}
+
+// ensureProjectFeature makes sure the session's Project has `feature` in its
+// features array, enabling it if absent. Used to satisfy feature gates like
+// "bots" (bot execution) and "cron" (bot scheduling).
+func ensureProjectFeature(t *testing.T, c *client.Client, feature string) {
+	t.Helper()
 	ctx := context.Background()
 	pid, err := c.CurrentProjectID(ctx)
 	if err != nil {
@@ -197,17 +205,17 @@ func ensureBotsFeature(t *testing.T, c *client.Client) {
 	}
 	feats, _ := doc["features"].([]any)
 	for _, f := range feats {
-		if f == "bots" {
+		if f == feature {
 			return
 		}
 	}
-	doc["features"] = append(feats, "bots")
+	doc["features"] = append(feats, feature)
 	body, err := json.Marshal(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.FHIRUpdate(ctx, "Project", pid, body); err != nil {
-		t.Fatalf("enable bots feature: %v", err)
+		t.Fatalf("enable %s feature: %v", feature, err)
 	}
 }
 
@@ -514,4 +522,159 @@ resource "medplum_bot" "admin" {
 			},
 		},
 	})
+}
+
+// checkBotCronString asserts the live Bot.cronString from the server. want ""
+// means the field must be absent.
+func checkBotCronString(c *client.Client, resourceName, want string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		rs, ok := s.RootModule().Resources[resourceName]
+		if !ok {
+			return fmt.Errorf("resource %s not found in state", resourceName)
+		}
+		out, err := c.FHIRRead(context.Background(), "Bot", rs.Primary.ID)
+		if err != nil {
+			return fmt.Errorf("read bot: %w", err)
+		}
+		var bot struct {
+			CronString string `json:"cronString"`
+		}
+		if err := json.Unmarshal(out, &bot); err != nil {
+			return err
+		}
+		if bot.CronString != want {
+			return fmt.Errorf("cronString = %q, want %q", bot.CronString, want)
+		}
+		return nil
+	}
+}
+
+func TestAccBot_cronSchedule(t *testing.T) {
+	if os.Getenv("TF_ACC") == "" {
+		t.Skip("TF_ACC not set")
+	}
+	c := newAccClient(t)
+	ensureBotsFeature(t, c)
+	ensureProjectFeature(t, c, "cron")
+
+	suffix := acctest.RandStringFromCharSet(8, acctest.CharSetAlphaNum)
+	cfg := func(cronLine string) string {
+		return fmt.Sprintf(`
+resource "medplum_bot" "cron" {
+  name = "tf-acc-bot-cron-%s"
+  code = "exports.handler = async () => true;"
+  %s
+}`, suffix, cronLine)
+	}
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{ // create with a schedule
+				Config: cfg(`cron_string = "0 2 * * *"`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("medplum_bot.cron", "cron_string", "0 2 * * *"),
+					checkBotCronString(c, "medplum_bot.cron", "0 2 * * *"),
+				),
+			},
+			{Config: cfg(`cron_string = "0 2 * * *"`), PlanOnly: true}, // no-op plan
+			{ // change the schedule
+				Config: cfg(`cron_string = "*/15 9-17 * * 1-5"`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					checkBotCronString(c, "medplum_bot.cron", "*/15 9-17 * * 1-5"),
+				),
+			},
+			{ // remove the schedule -> field deleted server-side
+				Config: cfg(``),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr("medplum_bot.cron", "cron_string"),
+					checkBotCronString(c, "medplum_bot.cron", ""),
+				),
+			},
+		},
+	})
+}
+
+func TestAccBot_invalidCronRejectedAtPlanTime(t *testing.T) {
+	if os.Getenv("TF_ACC") == "" {
+		t.Skip("TF_ACC not set")
+	}
+	cfg := `
+resource "medplum_bot" "badcron" {
+  name        = "tf-acc-bot-badcron"
+  code        = "exports.handler = async () => true;"
+  cron_string = "not a cron"
+}`
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config:      cfg,
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`Invalid cron_string`),
+			},
+		},
+	})
+}
+
+func TestValidateCronString(t *testing.T) {
+	valid := []string{
+		"0 2 * * *",         // 02:00 daily
+		"*/15 9-17 * * 1-5", // every 15m, 9-5, Mon-Fri
+		"0 0 1 * *",         // 1st of month
+		"* * * * *",         // every minute
+		"0,30 * * * 0",      // :00 and :30 on Sundays
+		"0 0 * * 6",         // Saturdays midnight
+	}
+	for _, expr := range valid {
+		if err := validateCronString(expr); err != nil {
+			t.Errorf("validateCronString(%q) = %v, want nil", expr, err)
+		}
+	}
+
+	invalid := []string{
+		"",             // empty
+		"testing",      // not cron
+		"0 2 * *",      // 4 fields
+		"0 2 * * * *",  // 6 fields (seconds not allowed)
+		"60 * * * *",   // minute out of range
+		"* 24 * * *",   // hour out of range
+		"* * 0 * *",    // day-of-month below 1
+		"* * 32 * *",   // day-of-month above 31
+		"* * * 13 *",   // month out of range
+		"* * * * 7",    // day-of-week above 6
+		"*/0 * * * *",  // zero step
+		"1-a * * * *",  // non-numeric range
+		"+5 * * * *",   // leading + not allowed
+		"*/+2 * * * *", // leading + in step
+		"1-+5 * * * *", // leading + in range bound
+	}
+	for _, expr := range invalid {
+		if err := validateCronString(expr); err == nil {
+			t.Errorf("validateCronString(%q) = nil, want error", expr)
+		}
+	}
+}
+
+func TestApplyBotFields_CronString(t *testing.T) {
+	// Setting cron_string writes cronString.
+	m := botModel{
+		Name:           types.StringValue("b"),
+		RuntimeVersion: types.StringValue("vmcontext"),
+		CronString:     types.StringValue("0 2 * * *"),
+	}
+	doc := map[string]any{}
+	m.applyBotFields(doc)
+	if doc["cronString"] != "0 2 * * *" {
+		t.Fatalf("cronString = %v, want %q", doc["cronString"], "0 2 * * *")
+	}
+
+	// Clearing cron_string deletes the field from an existing doc.
+	m.CronString = types.StringNull()
+	doc = map[string]any{"cronString": "0 2 * * *"}
+	m.applyBotFields(doc)
+	if _, present := doc["cronString"]; present {
+		t.Fatalf("cronString should be deleted when null, got %v", doc["cronString"])
+	}
 }

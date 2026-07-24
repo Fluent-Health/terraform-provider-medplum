@@ -11,6 +11,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -38,6 +39,7 @@ type botModel struct {
 	RunAsUser      types.Bool   `tfsdk:"run_as_user"`
 	AccessPolicy   types.String `tfsdk:"access_policy"`
 	Admin          types.Bool   `tfsdk:"admin"`
+	CronString     types.String `tfsdk:"cron_string"`
 	ProjectID      types.String `tfsdk:"project_id"`
 	MembershipID   types.String `tfsdk:"membership_id"`
 }
@@ -62,6 +64,92 @@ func (m botModel) resolveCode() (code string, ok bool, err error) {
 
 func sourceHashOf(code string) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(code)))
+}
+
+// cronField is one position in a standard 5-field cron expression.
+type cronField struct {
+	name     string
+	min, max int
+}
+
+var cronFields = [5]cronField{
+	{"minute", 0, 59},
+	{"hour", 0, 23},
+	{"day-of-month", 1, 31},
+	{"month", 1, 12},
+	{"day-of-week", 0, 6},
+}
+
+// validateCronString reports whether expr is a valid standard 5-field cron
+// expression (minute hour day-of-month month day-of-week). It mirrors the
+// defaults of the `cron-validator` package Medplum uses server-side
+// (packages/server/src/workers/cron.ts): no seconds field, no month/day
+// aliases. An expression Medplum would silently drop is rejected here at plan
+// time instead.
+func validateCronString(expr string) error {
+	parts := strings.Fields(expr)
+	if len(parts) != 5 {
+		return fmt.Errorf("expected 5 space-separated fields (minute hour day-of-month month day-of-week), got %d", len(parts))
+	}
+	for i, part := range parts {
+		if err := validateCronField(part, cronFields[i]); err != nil {
+			return fmt.Errorf("%s field %q: %w", cronFields[i].name, part, err)
+		}
+	}
+	return nil
+}
+
+// validateCronField validates one comma-separated cron field: each term is
+// "*", a number, a range "a-b", any of those followed by a "/step", or a bare
+// "*/step".
+func validateCronField(field string, f cronField) error {
+	for _, term := range strings.Split(field, ",") {
+		if term == "" {
+			return fmt.Errorf("empty term")
+		}
+		base := term
+		if slash := strings.Index(term, "/"); slash >= 0 {
+			base = term[:slash]
+			stepStr := term[slash+1:]
+			if strings.HasPrefix(stepStr, "+") {
+				return fmt.Errorf("invalid step %q", stepStr)
+			}
+			step, err := strconv.Atoi(stepStr)
+			if err != nil || step < 1 {
+				return fmt.Errorf("invalid step %q", stepStr)
+			}
+		}
+		if base == "*" {
+			continue
+		}
+		if dash := strings.Index(base, "-"); dash >= 0 {
+			loStr := base[:dash]
+			hiStr := base[dash+1:]
+			if strings.HasPrefix(loStr, "+") || strings.HasPrefix(hiStr, "+") {
+				return fmt.Errorf("invalid range %q", base)
+			}
+			lo, err1 := strconv.Atoi(loStr)
+			hi, err2 := strconv.Atoi(hiStr)
+			if err1 != nil || err2 != nil {
+				return fmt.Errorf("invalid range %q", base)
+			}
+			if lo < f.min || hi > f.max || lo > hi {
+				return fmt.Errorf("range %q out of bounds %d-%d", base, f.min, f.max)
+			}
+			continue
+		}
+		if strings.HasPrefix(base, "+") {
+			return fmt.Errorf("not a number: %q", base)
+		}
+		n, err := strconv.Atoi(base)
+		if err != nil {
+			return fmt.Errorf("not a number: %q", base)
+		}
+		if n < f.min || n > f.max {
+			return fmt.Errorf("%d out of bounds %d-%d", n, f.min, f.max)
+		}
+	}
+	return nil
 }
 
 var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -128,6 +216,11 @@ func (m botModel) applyBotFields(doc map[string]any) {
 	} else {
 		doc["runAsUser"] = m.RunAsUser.ValueBool()
 	}
+	if v := strOrEmpty(m.CronString); v != "" {
+		doc["cronString"] = v
+	} else {
+		delete(doc, "cronString")
+	}
 }
 
 type botDoc struct {
@@ -137,6 +230,7 @@ type botDoc struct {
 	RuntimeVersion string `json:"runtimeVersion"`
 	Timeout        *int64 `json:"timeout"`
 	RunAsUser      *bool  `json:"runAsUser"`
+	CronString     string `json:"cronString"`
 	Meta           struct {
 		Project string `json:"project"`
 	} `json:"meta"`
@@ -163,6 +257,7 @@ func (m *botModel) fromDoc(doc botDoc) {
 	} else {
 		m.RunAsUser = types.BoolNull()
 	}
+	m.CronString = optString(doc.CronString)
 	m.ProjectID = types.StringValue(doc.Meta.Project)
 }
 
@@ -205,6 +300,14 @@ func (r *botResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *
 			},
 			"timeout":     schema.Int64Attribute{Optional: true, MarkdownDescription: "Execution timeout in seconds."},
 			"run_as_user": schema.BoolAttribute{Optional: true, MarkdownDescription: "Run as the invoking user instead of the bot's own identity."},
+			"cron_string": schema.StringAttribute{
+				Optional: true,
+				MarkdownDescription: "Cron schedule for the bot, as a standard 5-field expression " +
+					"(minute hour day-of-month month day-of-week), evaluated in UTC — e.g. `0 2 * * *` " +
+					"for 02:00 daily. Requires the `cron` feature enabled on the Medplum Project; without " +
+					"it the schedule is stored on the Bot but never runs. An invalid expression is rejected " +
+					"at plan time.",
+			},
 			"access_policy": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "AccessPolicy reference for the bot's ProjectMembership, e.g. AccessPolicy/abc.",
@@ -259,6 +362,12 @@ func (r *botResource) ValidateConfig(ctx context.Context, req resource.ValidateC
 	if rv := strOrEmpty(m.RuntimeVersion); rv != "" && !slices.Contains(botRuntimes, rv) {
 		resp.Diagnostics.AddAttributeError(path.Root("runtime_version"), "Invalid runtime_version",
 			fmt.Sprintf("%q is not a Medplum bot runtime; must be one of %s.", rv, strings.Join(botRuntimes, ", ")))
+	}
+	if cs := m.CronString; !cs.IsNull() && !cs.IsUnknown() {
+		if err := validateCronString(cs.ValueString()); err != nil {
+			resp.Diagnostics.AddAttributeError(path.Root("cron_string"), "Invalid cron_string",
+				fmt.Sprintf("%q is not a valid 5-field cron expression: %v", cs.ValueString(), err))
+		}
 	}
 }
 
@@ -370,7 +479,7 @@ func (r *botResource) Create(ctx context.Context, req resource.CreateRequest, re
 
 	// timeout / run_as_user are not part of the admin create contract — apply
 	// them with a read-modify-write PUT that preserves sourceCode et al.
-	if !plan.Timeout.IsNull() || !plan.RunAsUser.IsNull() {
+	if !plan.Timeout.IsNull() || !plan.RunAsUser.IsNull() || !plan.CronString.IsNull() {
 		if err := r.updateBotFields(ctx, created.ID, plan); err != nil {
 			resp.Diagnostics.AddError("Update failed", err.Error())
 			return
