@@ -1,3 +1,9 @@
+# Unreleased
+
+### Features
+
+* **medplum_access_policy:** new `write_constraint` block on `resource`, exposing `AccessPolicy.resource.writeConstraint`. Where `criteria` filters which resources a policy applies to, a write constraint is a FHIRPath invariant evaluated against the resource *being written*, with `%before`/`%after` bound — so a policy can now express rules an interaction list cannot, such as which `Task.businessStatus` values a given role may set, or which transitions between them are legal. `language` is not exposed: Medplum evaluates every constraint with `evalFhirPathTyped` and never reads the field, so the provider always writes `text/fhirpath` rather than offer a choice that would be silently ignored. ⚠️ Only the **first** `resource` entry matching the type and interaction is consulted, and all policies on a membership are flattened into one list in assignment order — an earlier entry permitting the write without a constraint wins, so constrain the write or do not grant it.
+
 # v0.5.0 (2026-07-21)
 
 ### Features
