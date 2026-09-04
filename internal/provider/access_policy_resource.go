@@ -29,13 +29,26 @@ type accessPolicyModel struct {
 }
 
 type accessPolicyResourceRow struct {
-	ResourceType   types.String `tfsdk:"resource_type"`
-	Criteria       types.String `tfsdk:"criteria"`
-	Readonly       types.Bool   `tfsdk:"readonly"`
-	HiddenFields   types.List   `tfsdk:"hidden_fields"`
-	ReadonlyFields types.List   `tfsdk:"readonly_fields"`
-	Compartment    types.String `tfsdk:"compartment"`
-	Interaction    types.List   `tfsdk:"interaction"`
+	ResourceType    types.String                  `tfsdk:"resource_type"`
+	Criteria        types.String                  `tfsdk:"criteria"`
+	Readonly        types.Bool                    `tfsdk:"readonly"`
+	HiddenFields    types.List                    `tfsdk:"hidden_fields"`
+	ReadonlyFields  types.List                    `tfsdk:"readonly_fields"`
+	Compartment     types.String                  `tfsdk:"compartment"`
+	Interaction     types.List                    `tfsdk:"interaction"`
+	WriteConstraint []accessPolicyWriteConstraint `tfsdk:"write_constraint"`
+}
+
+// One FHIR Expression invariant from AccessPolicy.resource.writeConstraint.
+//
+// `language` is deliberately NOT exposed. Medplum evaluates every constraint with
+// evalFhirPathTyped (server/src/fhir/repo.ts, isResourceWriteable) and never reads
+// `language`, so a "text/cql" expression would be silently evaluated as FHIRPath.
+// Exposing the field would invite exactly that mistake, so the provider always
+// writes "text/fhirpath".
+type accessPolicyWriteConstraint struct {
+	Expression  types.String `tfsdk:"expression"`
+	Description types.String `tfsdk:"description"`
 }
 
 type accessPolicyIPRule struct {
@@ -72,6 +85,32 @@ func (r *accessPolicyResource) Schema(_ context.Context, _ resource.SchemaReques
 						"readonly_fields": schema.ListAttribute{Optional: true, ElementType: types.StringType, MarkdownDescription: "Read-only fields. Omit (do not set to []) when none."},
 						"compartment":     schema.StringAttribute{Optional: true, MarkdownDescription: "Compartment reference, e.g. Patient/123."},
 						"interaction":     schema.ListAttribute{Optional: true, ElementType: types.StringType, MarkdownDescription: "Allowed FHIR interactions, e.g. [\"read\",\"search\"]. Omit (do not set to []) when none."},
+					},
+					Blocks: map[string]schema.Block{
+						"write_constraint": schema.ListNestedBlock{
+							MarkdownDescription: "Invariants that must hold for a write to this resource type to be accepted. " +
+								"Unlike `criteria` (which filters reads), these constrain the SUBMITTED VALUE, so they can " +
+								"express rules an interaction list cannot — e.g. which `Task.businessStatus` values a role may set.\n\n" +
+								"⚠️ Only the FIRST `resource` entry matching the resource type and interaction is consulted " +
+								"(Medplum's `satisfiedAccessPolicy` uses `find`), and every AccessPolicy assigned to a " +
+								"membership is flattened into ONE list in assignment order. An earlier entry that permits the " +
+								"write WITHOUT a constraint therefore wins, and these constraints are never evaluated. " +
+								"Constrain the write, or do not grant it — do not rely on a later entry to narrow an earlier one.",
+							NestedObject: schema.NestedBlockObject{
+								Attributes: map[string]schema.Attribute{
+									"expression": schema.StringAttribute{
+										Required: true,
+										MarkdownDescription: "FHIRPath returning a single boolean. `%before` and `%after` are bound to the " +
+											"resource before and after the update, so a constraint can gate a transition and not just a " +
+											"target value. A non-boolean or multi-valued result is treated as a FAILED constraint.",
+									},
+									"description": schema.StringAttribute{
+										Optional:            true,
+										MarkdownDescription: "Human-readable statement of the invariant. Carried to the server; not evaluated.",
+									},
+								},
+							},
+						},
 					},
 				},
 			},
@@ -131,6 +170,21 @@ func (m accessPolicyModel) toFHIR(id string) ([]byte, error) {
 		if ia := listToStrings(row.Interaction); len(ia) > 0 {
 			entry["interaction"] = ia
 		}
+		if len(row.WriteConstraint) > 0 {
+			constraints := make([]map[string]any, 0, len(row.WriteConstraint))
+			for _, wc := range row.WriteConstraint {
+				c := map[string]any{
+					// Always FHIRPath — see accessPolicyWriteConstraint.
+					"language":   "text/fhirpath",
+					"expression": wc.Expression.ValueString(),
+				}
+				if v := strOrEmpty(wc.Description); v != "" {
+					c["description"] = v
+				}
+				constraints = append(constraints, c)
+			}
+			entry["writeConstraint"] = constraints
+		}
 		rows = append(rows, entry)
 	}
 	doc["resource"] = rows
@@ -169,7 +223,11 @@ func (m *accessPolicyModel) fromFHIR(body []byte) error {
 			Compartment    struct {
 				Reference string `json:"reference"`
 			} `json:"compartment"`
-			Interaction []string `json:"interaction"`
+			Interaction     []string `json:"interaction"`
+			WriteConstraint []struct {
+				Expression  string `json:"expression"`
+				Description string `json:"description"`
+			} `json:"writeConstraint"`
 		} `json:"resource"`
 		IPAccessRule []struct {
 			Name   string `json:"name"`
@@ -198,6 +256,18 @@ func (m *accessPolicyModel) fromFHIR(body []byte) error {
 			rr.Readonly = types.BoolValue(*row.Readonly)
 		} else {
 			rr.Readonly = types.BoolNull()
+		}
+		// nil (not empty) when absent, so a constraint-free entry round-trips to no
+		// block rather than an empty one — same reason as m.Resource below.
+		if len(row.WriteConstraint) > 0 {
+			cs := make([]accessPolicyWriteConstraint, 0, len(row.WriteConstraint))
+			for _, wc := range row.WriteConstraint {
+				cs = append(cs, accessPolicyWriteConstraint{
+					Expression:  types.StringValue(wc.Expression),
+					Description: optString(wc.Description),
+				})
+			}
+			rr.WriteConstraint = cs
 		}
 		rows = append(rows, rr)
 	}
