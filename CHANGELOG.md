@@ -1,8 +1,24 @@
-# Unreleased
+# v0.7.0 (2026-09-04)
 
 ### Features
 
 * **medplum_access_policy:** new `write_constraint` block on `resource`, exposing `AccessPolicy.resource.writeConstraint`. Where `criteria` filters which resources a policy applies to, a write constraint is a FHIRPath invariant evaluated against the resource *being written*, with `%before`/`%after` bound — so a policy can now express rules an interaction list cannot, such as which `Task.businessStatus` values a given role may set, or which transitions between them are legal. `language` is not exposed: Medplum evaluates every constraint with `evalFhirPathTyped` and never reads the field, so the provider always writes `text/fhirpath` rather than offer a choice that would be silently ignored. ⚠️ Only the **first** `resource` entry matching the type and interaction is consulted, and all policies on a membership are flattened into one list in assignment order — an earlier entry permitting the write without a constraint wins, so constrain the write or do not grant it.
+
+# v0.6.1 (2026-09-02)
+
+### Dependencies
+
+* Bump `google.golang.org/grpc` (#30), and `actions/setup-node` 6 → 7 in CI (#28). Indirect dependencies only; no provider behaviour changes.
+
+# v0.6.0 (2026-07-24)
+
+### Features
+
+* **medplum_bot:** new `cron_string` attribute, scheduling a bot with a standard cron expression (#26).
+
+### Documentation
+
+* `docs/` wired up for Backstage TechDocs rendering (#25), and a human-readable `metadata.title` added to the catalog entry (#29).
 
 # v0.5.0 (2026-07-21)
 
