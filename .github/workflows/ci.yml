@@ -54,7 +54,7 @@ jobs:
           # upstream); Node 20 reached end-of-life 2026-04-30.
           node-version: "22"
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
